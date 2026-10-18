@@ -22,7 +22,7 @@ doc/README.md   本文档
 
 | 模块 | 职责 | 主要类（一类一文件，文件名 = 类名） |
 |---|---|---|
-| **model** | 表达"文档里有什么"。图形层次、父子关系、id 唯一性、几何变换（move/scale）、属性白名单校验、状态快照（Memento）。**不认识 SVG 文本、不认识命令行、不输出任何文字** | `Shape`（抽象基类）、`Rect` `Circle` `Ellipse` `Line` `Text`、`Group`、`Document`、`ShapeFactory`、`ShapeView`（只读接口）、`DomainError` 及其子类 |
+| **model** | 表达"文档里有什么"。图形层次、父子关系、id 唯一性、几何变换（move/scale）、属性白名单校验、状态快照（Memento）。**不认识 SVG 文本、不认识命令行、不输出任何文字** | `Shape`（抽象基类）、`Rect` `Circle` `Ellipse` `Line` `Text`、`Group`、`RootGroup`（画布根）、`Document`、`ShapeFactory`、`ShapeSpec`（类型创建说明书）、`ShapeAttributes`、`ShapeState`（Memento）、`NumberCodec`、`StyleInit`、`ShapeView` / `DocumentView`（只读接口）、`DomainError` 及 `errors/` 下的各子类 |
 | **commands** | 表达"一次可撤销的编辑"。每条编辑命令一个类，自带 `execute / undo`；`History` 管理撤销栈与重做栈 | `Command`（接口）、`CreateShapeCommand` `DeleteShapeCommand` `MoveCommand` `ScaleCommand` `SetAttributeCommand` `GroupCommand` `UngroupCommand` `AddToCommand` `ZOrderCommand`、`History` |
 | **io** | 表达"文档与外部世界的转换"：Document ⇄ SVG 文本；文件读写经接口隔离，测试时可换成内存实现 | `SvgSerializer`、`SvgParser`、`FileSystem`（接口）、`NodeFileSystem` |
 | **app** | 表达"一个编辑会话"：持有当前 Document、History、读入路径、"io 命令后禁止 undo"的栏位；对外提供与界面无关的用例方法（`createShape` `move` `undo` `save`…）。**不打印、不解析命令行**，换 GUI / agent 时可原样复用 | `Editor` |
@@ -115,7 +115,7 @@ Command ..> Document
 | 模式 | 解决什么问题 | 在代码里怎么落地 |
 |---|---|---|
 | **Command**（必选） | 编辑可撤销 / 重做；一条命令 = 一个 undo 单元 | `Command` 接口：`execute()` / `undo()` 各返回一行结果摘要（如 `circle#c1 moved back to (100,100)`）。每条编辑命令一个类，构造时只保存参数，`execute` 时记录还原所需信息。`History.run(cmd)` 执行成功后入栈并清空 redo 栈；执行抛错则**不入栈**。`group g1 a b c` 是一个 `GroupCommand`，内部记录所有成员原来的（父容器, 下标），一次 undo 全部还原。显示类命令不是 Command，不经过 History |
-| **Composite** | 容器与叶子统一操作 | `Shape` 为统一抽象；`Group` 持有 `Shape[]`，其 `translate/scale/setAttribute/delete` 递归转发给子节点，**调用方不写 `if (isGroup)`**。命令类只面向 `Shape` 编程 |
+| **Composite** | 容器与叶子统一操作 | `Shape` 为统一抽象，采用**透明式 Composite**：`children / insertChild / removeChild / indexOf / canUngroup` 直接声明在 `Shape` 上，叶子调用子节点管理方法抛 `not a container`；`Group` 持有 `Shape[]`，其 `translate/scale/setAttribute` 递归转发给子节点。**调用方不写 `if (isGroup)` 也不做类型断言**，命令类只面向 `Shape` 编程。选透明式而非安全式，是因为安全式要求 `Shape` 引用 `Group` 类型，两者互相 import 会形成循环依赖，被依赖检查拒绝 |
 | **Memento** | 让 move/scale/set 的 undo 精确还原 | `Shape.captureState()` 返回不透明快照，`restoreState()` 还原；`Group` 的快照递归包含子孙。**不用"反向操作"**：`scale 0.3` 再 `scale 1/0.3` 会有浮点误差，快照则逐位精确 |
 | **Factory（简单工厂 + 注册表）** | 类型名 → 图形类；CLI 与 SVG 读入共用同一创建路径 | `ShapeFactory.create(type, id, attrs)`，`attrs` 的键直接用 SVG 属性名（`x y width height fill`…），CLI 位置参数按类型的参数表映射成属性名，`SvgParser` 则直接传 XML 属性 |
 | **Facade** | 隔离界面与内核 | `Editor` 是 cli 唯一能调用的入口 |
@@ -160,18 +160,21 @@ main ──► cli ──► app ──► commands ──► model
 ### 1.4 关键设计决策（实现层面）
 
 1. **失败不改状态**：每个 `Command.execute()` 分两段：先**完整校验所有前置条件**（id 是否存在 / 是否重复、目标是否是容器、是否把容器放进自己的子孙、因子是否为正…），全部通过后才开始修改。抛出的 `DomainError` 子类的 `message` 即规范里的错误文本，cli 只加前缀 `error: `。
-2. **撤销栏位**：`Editor` 持有 `undoBlockedByIo: boolean`。`init` / `read` 替换了文档，旧栈里的命令已失效，故**清空两个栈**；`save` / `canvas <w> <h>` **保留两个栈**，且它们本身不入栈、不可被 undo。四者执行后置位 `true`，下一条**编辑命令**成功后复位。置位时 `undo/redo` 抛 `undo not allowed after io command`（即 `save` 之后紧接 `undo` 报错，不会越过 `save` 去撤销它之前的编辑；复位后再 undo，先撤销新编辑，继续 undo 才回到 `save` 之前的编辑）。**（已确认）**
+2. **撤销栏位**：`Editor` 持有 `undoBlockedByIo: boolean`。`init` / `read` / `save` / `canvas <w> <h>` 四条 io 命令执行成功后，一律**清空 undo 与 redo 两个栈**，并置位 `true`；它们本身不入栈、不可被 undo。下一条**编辑命令**成功后复位，此后栈从空开始重新记录。置位时 `undo/redo` 抛 `undo not allowed after io command`。这样 io 命令之后既不能 undo，也不可能越过 io 命令撤销它之前的编辑，与规范 4.3 的字面要求完全一致。不提供 `--ignore-io` 之类的越界参数。**（已确认，见 v0.3）**
 3. **id 查找**：`Document.find(id)` 遍历树（O(n)），**不维护 id 索引**——命令行规模下足够，且避免"索引与树不同步"的一类 bug。所有按 id 定位只经此一个入口。
 4. **`group` 的落点**：新容器放在**第一个成员原父容器**中、第一个成员原来的位置；成员按文档顺序保持相对顺序。成员父容器不同时，其余成员被拉入第一个成员的父容器。**（已确认）**
 5. **`addto` / `group` 的环检测**：目标容器若位于任何被移动图形的子树内，抛 `cannot group a container into its own descendant`。
 6. **读入 SVG**：`<rect circle ellipse line text g>` 之外的元素（`path` `defs`…）**跳过并打印 `warning: skipped unsupported element <path>`**；`<g>` 上的 `transform` 作为不透明字符串原样保留并回写，不可通过 `set` 修改（`move/scale` 通过递归修改子节点坐标实现，不改写 `transform`）。
-7. **数字输出**：整数不带小数点，浮点去掉多余尾零；统一在 `Shape.describe()` / `attributes()` 的格式化函数里处理。
+7. **数字输出**：整数不带小数点，浮点去掉累积误差与多余尾零，`-0` 输出为 `0`；统一由 `NumberCodec.format` 处理，解析由 `NumberCodec.parse` 处理（拒绝 `abc`、空串、`NaN`）。
+8. **对容器 `set`**：只接受 `fill` / `stroke` / `stroke-width`，并递归设置到全部子孙（规范要求容器与叶子统一操作，但未定义几何属性如何作用于容器，故拒绝 `set g1 x 5`，报 `unknown attribute: x`）。先整体校验后赋值，保证失败不改状态。
+9. **画布根是特殊容器**：`Document.root` 是 `RootGroup`（`kind=svg`），不参与 `find`，不能被 `ungroup`；因此用户可以创建 id 为 `svg` 的图形而不冲突。`Document.isTopLevel(shape)` 判断"是否根的直接子节点"，用于 `ungroup` 的 `cannot ungroup top-level container` 检查。
+10. **图形创建说明书 `ShapeSpec`**：每个图形类提供静态 `spec()`，包含类型名、位置参数表和构造函数；CLI 的位置参数与 SVG 属性都先归一成"属性名 → 值"再交给同一个构造函数。缺省数值按 SVG 规则取 0。
 
 ### 1.5 变化点假设
 
 | # | 我认为未来最可能变化的 | 我为它留了什么 | 没留什么、为什么 |
 |---|---|---|---|
-| 1 | **新增图形类型 / 复合图形 `box`（下一阶段确定会发生）** | ① `ShapeFactory` 注册表 + `register()`；② 序列化走 `kind + attributes()`，新类型不改 `SvgSerializer`；③ `Shape.setAttribute` 是虚方法，`box` 可重写成"传播给子部件"；④ `Shape.describe()` / `kind` 可重写成 `g#n1 (box)`；⑤ 创建参数以"属性名 → 值"传递，不写死位置参数 | 不做插件加载器、不做 `ShapeProvider` 接口——本阶段只有 6 个内置类型，提前抽象会猜错形状（YAGNI）。`ungroup` 拒绝复合图形的判断留给 `Group` 的一个虚方法 `canUngroup()`，当前恒为 `true` |
+| 1 | **新增图形类型 / 复合图形 `box`（下一阶段确定会发生）** | ① `ShapeFactory` 注册表 + `register()`；② 序列化走 `kind + attributes()`，新类型不改 `SvgSerializer`；③ `Shape.setAttribute` 是虚方法，`box` 可重写成"传播给子部件"；④ `Shape.describe()` / `kind` 可重写成 `g#n1 (box)`；⑤ 创建参数以"属性名 → 值"传递，不写死位置参数 | 不做插件加载器、不做 `ShapeProvider` 接口——本阶段只有 6 个内置类型，提前抽象会猜错形状（YAGNI）。`ungroup` 拒绝复合图形的判断留给 `Shape.canUngroup()` 虚方法（`Group` 为 `true`，`RootGroup` 为 `false`，将来 `box` 重写为 `false`） |
 | 2 | **新增输入通道（GUI / agent / 脚本）** | `Editor` 门面不依赖 cli、不输出文字；cli 的处理器只做"字符串 → 类型化参数 → 调 Editor" | 不做事件总线 / 观察者通知——暂无多视图同步需求 |
 | 3 | **新增命令或撤销粒度变化**（如宏命令、命令合并） | `Command` 是接口，`History` 只依赖接口；新增命令 = 新增一个类 + 一个处理器 | 不预先做 `MacroCommand`——`group` 目前自己就是一个单元；出现"一次输入触发多条命令"时再引入 |
 | 4 | **文件格式 / XML 库替换** | 所有 XML 细节关在 `io/` 内；fs 经 `FileSystem` 接口注入 | 不抽 `DocumentFormat` 接口——只有 SVG 一种格式，抽出来没有第二个实现可验证 |
@@ -190,10 +193,14 @@ main ──► cli ──► app ──► commands ──► model
 |---|---|---|---|
 | v0.1 | 2026-10-18 | 初稿 | — |
 | v0.2 | 2026-10-18 | 确认 `save` 后保留 undo 栈（`save` 本身不入栈）；确认 `group` 落在第一个成员的位置 | 消除规范未明确处的歧义 |
+| v0.3 | 2026-10-18 | 修订 v0.2：`init` / `read` / `save` / `canvas` 四条 io 命令一律清空 undo 与 redo 栈；曾讨论 `undo --ignore-io` 越界参数，决定不做 | 贴合规范 4.3 的字面要求，规则最简单，避免评测差异 |
+| v0.4 | 2026-10-18 | 实现 `model/` 时修订：① Composite 由"安全式"改为"透明式"（子节点管理方法上移到 `Shape`）；② `canUngroup()` 由 `Group` 上移到 `Shape`；③ 新增 `RootGroup`、`ShapeSpec`、`ShapeAttributes`、`ShapeState`、`NumberCodec`、`DocumentView`；④ 新增 1.4 第 8–10 条 | ① 安全式需要 `Shape` 与 `Group` 互相引用，产生循环依赖；② 命令只持有 `Shape`，需要无需类型断言的入口；③④ 实现中暴露的必要抽象与规范未覆盖的取值 |
 
 ## 2. 过程记录
 
 _（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如何确认与纠正。）_
+
+* 讨论过 undo --ignore-io，因为规范 4.3 要求字面一致、避免扣分而放弃
 
 ## 3. 一致性自查
 
