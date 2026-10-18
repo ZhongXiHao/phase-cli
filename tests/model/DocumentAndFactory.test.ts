@@ -149,3 +149,10 @@ describe('ShapeFactory', () => {
     expect(() => custom.register(Group.spec())).toThrow('already registered');
   });
 });
+
+describe('Document construction', () => {
+  it('rejects a non-positive canvas size', () => {
+    expect(() => new Document(0, 600)).toThrow(InvalidCanvasSizeError);
+    expect(() => new Document(800, -1)).toThrow('canvas size must be positive');
+  });
+});

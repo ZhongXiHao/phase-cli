@@ -26,7 +26,7 @@ doc/README.md   本文档
 | **commands** | 表达"一次可撤销的编辑"。每条编辑命令一个类，自带 `execute / undo`；`History` 管理撤销栈与重做栈 | `Command`（接口）、`CreateShapeCommand` `DeleteShapeCommand` `MoveCommand` `ScaleCommand` `SetAttributeCommand` `GroupCommand` `UngroupCommand` `AddToCommand` `ZOrderCommand`（`front()` / `back()` 两个静态工厂）、`History`、`NothingToUndoError` `NothingToRedoError` |
 | **io** | 表达"文档与外部世界的转换"：Document ⇄ SVG 文本；文件读写经接口隔离，测试时可换成内存实现 | `SvgSerializer`、`SvgParser`、`FileSystem`（接口）、`NodeFileSystem` |
 | **app** | 表达"一个编辑会话"：持有当前 Document、History、读入路径、"io 命令后禁止 undo"的栏位；对外提供与界面无关的用例方法（`createShape` `move` `undo` `save`…）。**不打印、不解析命令行**，换 GUI / agent 时可原样复用 | `Editor` |
-| **cli** | 表达"文本交互"：读一行、分词（引号、`#` 注释）、查表分发到处理器、把结果渲染为文字（`error:` 前缀、tree、show、help） | `Repl`、`Tokenizer`、`CommandTable`、`CliHandler`（抽象基类）及每条用户命令一个处理器、`TreeRenderer`、`ShowRenderer` |
+| **cli** | 表达"文本交互"：读一行、分词（引号、`#` 注释）、查表分发到处理器、把结果渲染为文字（`error:` 前缀、tree、show、help） | `Repl`（只管 I/O 循环）、`Interpreter`（一行文本 → 输出行，含统一错误处理）、`Tokenizer`、`CommandTable`、`CliHandler`（抽象基类）及 `handlers/` 下每条用户命令一个处理器、`TreeRenderer`、`ShowRenderer` |
 
 #### 组件图
 
@@ -149,13 +149,14 @@ main ──► cli ──► app ──► commands ──► model
 | `commands` | `model` | `io` `app` `cli` | 命令只操作文档对象；不碰文件、不碰界面。保证"一个命令"能在无 IO 的单元测试里跑 |
 | `io` | `model`、`@xmldom/xmldom` | `commands` `app` `cli` | 序列化只关心 Document ⇄ 文本；格式变化不应波及编辑逻辑 |
 | `app` | `model` `commands` `io` | `cli` | 门面不得反向依赖界面，否则换 GUI / agent 时无法复用；`app` 不打印任何文字 |
-| `cli` | `app`，以及 `model` 中的 **只读** 部分（`ShapeView`、`DomainError`） | `commands` `io` | cli 只和门面说话。只读约束由类型保证：`app` 向 cli 返回的是 `ShapeView`，没有任何变更方法 |
+| `cli` | `app`，以及 `model` 中的 **只读** 部分（`ShapeView`、`DocumentView`、`NumberCodec`、`errors/`） | `commands` `io` | cli 只和门面说话。只读约束由类型保证：`app` 向 cli 返回的是 `ShapeView`，没有任何变更方法 |
 | `main` | 所有模块 | — | 组合根，唯一允许认识全部实现类的地方（注入 `NodeFileSystem`、`process.stdin/stdout`） |
 
 补充规则：
 1. **`model` 内部**：`Group` 的子节点变更方法（`insertChild / removeChild`）只允许 `commands` 调用，`cli` 看不到（`ShapeView` 不含它们）。
 2. **副作用边界**：只有 `io/NodeFileSystem` 与 `cli/Repl` 触碰真实的 fs / stdio，其余模块纯内存，便于测试。
-3. **执行方式**：用 `dependency-cruiser` 配置上述规则并纳入 `npm test`，违反即视为"待处理项"。
+3. **cli 对 model 的访问面是白名单**：`dependency-cruiser` 规则 `cli-reads-model-through-views` 只允许 cli 引用 `ShapeView`、`DocumentView`、`NumberCodec` 与 `errors/`，引用 `Shape`、`Group`、`Document` 等任何可变类型即报错。
+4. **执行方式**：用 `dependency-cruiser` 配置上述规则并纳入 `npm test`，违反即视为"待处理项"。
 
 ### 1.4 关键设计决策（实现层面）
 
@@ -200,12 +201,23 @@ main ──► cli ──► app ──► commands ──► model
 | v0.3 | 2026-10-18 | 修订 v0.2：`init` / `read` / `save` / `canvas` 四条 io 命令一律清空 undo 与 redo 栈；曾讨论 `undo --ignore-io` 越界参数，决定不做 | 贴合规范 4.3 的字面要求，规则最简单，避免评测差异 |
 | v0.4 | 2026-10-18 | 实现 `model/` 时修订：① Composite 由"安全式"改为"透明式"（子节点管理方法上移到 `Shape`）；② `canUngroup()` 由 `Group` 上移到 `Shape`；③ 新增 `RootGroup`、`ShapeSpec`、`ShapeAttributes`、`ShapeState`、`NumberCodec`、`DocumentView`；④ 新增 1.4 第 8–10 条 | ① 安全式需要 `Shape` 与 `Group` 互相引用，产生循环依赖；② 命令只持有 `Shape`，需要无需类型断言的入口；③④ 实现中暴露的必要抽象与规范未覆盖的取值 |
 | v0.5 | 2026-10-18 | 实现 `commands/`：新增 `Shape.anchor()`（move 的回显需要区分叶子与容器）；新增 1.4 第 11–14 条；`ZOrderCommand` 用静态工厂 `front()` / `back()` | 规范的回显格式要求；redo 复用对象以保证引用有效 |
+| v0.6 | 2026-10-18 | 实现 `app/` 与 `cli/`：新增 `Interpreter`；cli 对 model 的访问收紧为白名单（新增 dependency-cruiser 规则）；新增 1.4 第 15–18 条；`HelpHandler` 改为接收函数而非 `CommandTable` | 测试与依赖检查中发现的问题（见过程记录） |
+
+15. **Repl 与 Interpreter 分离**：`Interpreter.run(line): string[]` 不碰 stdin/stdout，负责分词、分发、把 `DomainError` 转成 `error: …`，非领域错误以 `error: internal: …` 报告但不中断会话；`Repl` 只做读写循环。这样脚本回放测试直接驱动 Interpreter，I/O 层单独用内存流测试。
+16. **`create` 的 `in` 子句**：处理器取"倒数第二个 token 恰为 `in`"作为尾缀，其余全部当位置参数。已知限制：若 text 内容恰好就是 `in` 且紧跟一个 id，会被误判为尾缀（需把内容放进引号并保证其不在倒数第二位）。
+17. **tree 的列对齐**：所有带描述的行统一对齐，描述列 = 全树最长"前缀 + 标签"+ 2 空格。规范三份示例中有两份（第 5.1 节、`other.svg` 读入）符合此规则，6.1 节手绘的流程图示例对齐方式不同（按同级分组、间隔 1 空格），属示例自身不一致，以多数示例为准。
+18. **运行方式**：`npm run cli` 交互；`npm run cli -- <脚本文件>` 回放脚本；管道输入亦可。非交互输入时，读到的行回显在提示符之后，输出即完整会话记录。额外提供 `exit` 命令（规范未要求），Ctrl+D 同样可退出。
 
 ## 2. 过程记录
 
 _（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如何确认与纠正。）_
 
 * 讨论过 undo --ignore-io，因为规范 4.3 要求字面一致、避免扣分而放弃
+
+* **依赖检查抓到我（AI）引入的循环依赖**：`HelpHandler` 为了列出全部命令引用了 `CommandTable`，而 `CommandTable` 又要构造 `HelpHandler`。`dependency-cruiser` 的 `no-circular` 规则报错后，改为 `HelpHandler` 只接收一个"返回处理器列表"的函数。同样的原因，model 层的 Composite 也从"安全式"改成了"透明式"（见 v0.4）。
+* **测试发现 `exit` 之后仍执行后续行**：readline 关闭后会继续发出同一块输入里已缓冲的行，导致脚本里 `exit` 后面的命令仍被执行。在行处理函数开头加守卫修复，并留下回归测试。
+* **我自己的测试假设错了**：长链 undo/redo 测试里对根级容器 `ungroup`，被规范规定的 `cannot ungroup top-level container` 拒绝。实现没错，错在测试，改为先 `addto` 进另一个容器。
+* **规范示例之间互相矛盾**：`tree` 的列对齐在三份示例里不一致，无法同时满足，取多数（见 1.4-17）。
 
 ## 3. 一致性自查
 

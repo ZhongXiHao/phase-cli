@@ -11,10 +11,14 @@ import type { Shape } from './Shape.js';
 export class Document implements DocumentView {
   readonly root = new RootGroup();
 
-  constructor(
-    private _width: number = 800,
-    private _height: number = 600,
-  ) {}
+  private _width: number;
+  private _height: number;
+
+  constructor(width: number = 800, height: number = 600) {
+    Document.assertValidSize(width, height);
+    this._width = width;
+    this._height = height;
+  }
 
   get width(): number {
     return this._width;
@@ -25,11 +29,15 @@ export class Document implements DocumentView {
   }
 
   resize(width: number, height: number): void {
+    Document.assertValidSize(width, height);
+    this._width = width;
+    this._height = height;
+  }
+
+  private static assertValidSize(width: number, height: number): void {
     if (!(width > 0) || !(height > 0) || !Number.isFinite(width) || !Number.isFinite(height)) {
       throw new InvalidCanvasSizeError();
     }
-    this._width = width;
-    this._height = height;
   }
 
   /** 先序遍历全部图形（不含画布根）。 */

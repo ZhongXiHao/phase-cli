@@ -19,6 +19,13 @@ module.exports = {
     layer('app', ['cli']),
     layer('cli', ['commands', 'io']),
     {
+      name: 'cli-reads-model-through-views',
+      severity: 'error',
+      comment: 'cli 只能使用 model 的只读视图、错误类型与 NumberCodec（见 doc/README.md 1.3）',
+      from: { path: '^src/cli/' },
+      to: { path: '^src/model/', pathNot: '^src/model/(ShapeView|DocumentView|NumberCodec|errors/)' },
+    },
+    {
       name: 'model-no-third-party',
       severity: 'error',
       comment: 'model 仅依赖语言标准库',
