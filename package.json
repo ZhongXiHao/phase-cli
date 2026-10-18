@@ -7,13 +7,15 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "deps": "depcruise src --config .dependency-cruiser.cjs",
-    "check": "npm run typecheck && npm run deps && npm test"
+    "check": "npm run typecheck && npm run deps && npm test",
+    "coverage": "vitest run --coverage --coverage.include=src/**/*.ts --coverage.exclude=src/main.ts"
   },
   "description": "SVG editor (CLI)",
   "private": true,
   "type": "module",
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "@vitest/coverage-v8": "^5.0.5",
     "dependency-cruiser": "^18.6.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",

@@ -2,3 +2,5 @@ node_modules/
 dist/
 coverage/
 *.log
+# 示例脚本运行时生成的输出
+examples/*.out.svg

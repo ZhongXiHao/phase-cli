@@ -1,4 +1,4 @@
-# 规范第 6 节的典型会话（去掉 save / read，那两条在 io 阶段才有）
+# 规范第 6 节的完整典型会话
 init 800 600
 create rect bg 0 0 800 600 #ffffff
 create text title 20 40 "My Diagram"
@@ -20,3 +20,9 @@ delete box
 undo
 tree
 show c1
+
+# 保存后立刻 undo 应当被拒绝；然后读入另一个文件
+save examples/markers.out.svg
+undo
+read examples/other.svg
+tree

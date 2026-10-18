@@ -1,6 +1,7 @@
 import { Readable, Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { Editor } from '../../src/app/Editor.js';
+import { InMemoryFileSystem } from '../support/InMemoryFileSystem.js';
 import { Repl } from '../../src/cli/Repl.js';
 
 async function transcript(script: string, echoInput = true): Promise<string> {
@@ -11,7 +12,7 @@ async function transcript(script: string, echoInput = true): Promise<string> {
       callback();
     },
   });
-  await new Repl(new Editor(), Readable.from([script]), sink, { echoInput, interactive: false }).run();
+  await new Repl(new Editor(new InMemoryFileSystem()), Readable.from([script]), sink, { echoInput, interactive: false }).run();
   return out;
 }
 

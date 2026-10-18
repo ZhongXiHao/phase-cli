@@ -21,3 +21,4 @@ undo
 # 只改组内文字
 set process-label text "处理数据 v2"
 tree flowchart
+save examples/flowchart.out.svg

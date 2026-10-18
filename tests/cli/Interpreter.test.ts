@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Editor } from '../../src/app/Editor.js';
+import { InMemoryFileSystem } from '../support/InMemoryFileSystem.js';
 import { Interpreter } from '../../src/cli/Interpreter.js';
 
 let interpreter: Interpreter;
 
 beforeEach(() => {
-  interpreter = new Interpreter(new Editor());
+  interpreter = new Interpreter(new Editor(new InMemoryFileSystem()));
 });
 
 /** 每项是 [输入, ...期望输出行]；逐条执行并断言，等价于对照规范的 transcript。 */
@@ -190,7 +191,7 @@ describe('tree and show', () => {
   });
 
   it('tree of an empty document is just the header', () => {
-    expect(new Interpreter(new Editor()).run('init 5 5')).toEqual(['canvas 5x5 created']);
+    expect(new Interpreter(new Editor(new InMemoryFileSystem())).run('init 5 5')).toEqual(['canvas 5x5 created']);
   });
 
   it('tree <id> shows only that subtree; a leaf shows one line', () => {
@@ -209,7 +210,7 @@ describe('tree and show', () => {
 describe('exit', () => {
   it('invokes the exit callback', () => {
     let exited = false;
-    const withExit = new Interpreter(new Editor(), () => {
+    const withExit = new Interpreter(new Editor(new InMemoryFileSystem()), () => {
       exited = true;
     });
     expect(withExit.run('exit')).toEqual([]);

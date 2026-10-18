@@ -1,6 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { Editor } from './app/Editor.js';
 import { Repl } from './cli/Repl.js';
+import { NodeFileSystem } from './io/NodeFileSystem.js';
 
 /**
  * 组合根：装配 Editor 与 Repl，并决定输入来源。
@@ -13,7 +14,7 @@ async function main(): Promise<void> {
   const input = scriptPath === undefined ? process.stdin : createReadStream(scriptPath, { encoding: 'utf8' });
   const interactive = scriptPath === undefined && process.stdin.isTTY === true;
 
-  const repl = new Repl(new Editor(), input, process.stdout, { echoInput: !interactive, interactive });
+  const repl = new Repl(new Editor(new NodeFileSystem()), input, process.stdout, { echoInput: !interactive, interactive });
   await repl.run();
 }
 

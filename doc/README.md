@@ -24,7 +24,7 @@ doc/README.md   本文档
 |---|---|---|
 | **model** | 表达"文档里有什么"。图形层次、父子关系、id 唯一性、几何变换（move/scale）、属性白名单校验、状态快照（Memento）。**不认识 SVG 文本、不认识命令行、不输出任何文字** | `Shape`（抽象基类）、`Rect` `Circle` `Ellipse` `Line` `Text`、`Group`、`RootGroup`（画布根）、`Document`、`ShapeFactory`、`ShapeSpec`（类型创建说明书）、`ShapeAttributes`、`ShapeState`（Memento）、`NumberCodec`、`StyleInit`、`ShapeView` / `DocumentView`（只读接口）、`DomainError` 及 `errors/` 下的各子类 |
 | **commands** | 表达"一次可撤销的编辑"。每条编辑命令一个类，自带 `execute / undo`；`History` 管理撤销栈与重做栈 | `Command`（接口）、`CreateShapeCommand` `DeleteShapeCommand` `MoveCommand` `ScaleCommand` `SetAttributeCommand` `GroupCommand` `UngroupCommand` `AddToCommand` `ZOrderCommand`（`front()` / `back()` 两个静态工厂）、`History`、`NothingToUndoError` `NothingToRedoError` |
-| **io** | 表达"文档与外部世界的转换"：Document ⇄ SVG 文本；文件读写经接口隔离，测试时可换成内存实现 | `SvgSerializer`、`SvgParser`、`FileSystem`（接口）、`NodeFileSystem` |
+| **io** | 表达"文档与外部世界的转换"：Document ⇄ SVG 文本；文件读写经接口隔离，测试时可换成内存实现 | `SvgSerializer`、`SvgParser`、`ParseResult`、`FileSystem`（接口）、`NodeFileSystem`、`FileReadError` `FileWriteError` `InvalidSvgError` |
 | **app** | 表达"一个编辑会话"：持有当前 Document、History、读入路径、"io 命令后禁止 undo"的栏位；对外提供与界面无关的用例方法（`createShape` `move` `undo` `save`…）。**不打印、不解析命令行**，换 GUI / agent 时可原样复用 | `Editor` |
 | **cli** | 表达"文本交互"：读一行、分词（引号、`#` 注释）、查表分发到处理器、把结果渲染为文字（`error:` 前缀、tree、show、help） | `Repl`（只管 I/O 循环）、`Interpreter`（一行文本 → 输出行，含统一错误处理）、`Tokenizer`、`CommandTable`、`CliHandler`（抽象基类）及 `handlers/` 下每条用户命令一个处理器、`TreeRenderer`、`ShowRenderer` |
 
@@ -189,8 +189,9 @@ main ──► cli ──► app ──► commands ──► model
 
 ### 1.6 待确认的假设（规范未明确，当前采用的取值）
 
-- 读入遇到不支持元素：跳过并警告（见 1.4-6）。
-- `create` 的 `fill/stroke` 与 `in` 子句同时出现时的解析：`in` 必须是最后两个 token。
+- 读入遇到不支持的**元素**（`path`、`defs`…）：整棵子树跳过，并打印 `warning: skipped unsupported element <path>`（见 1.4-6）。
+- 读入时图形类型不认识的**属性**（如 `rx`、`font-size`、`text-anchor`、`opacity`）**静默丢弃**，因此对含这些属性的外部文件做 `read` → `save` 会丢失它们。规范没有要求保留，且为避免与规范 transcript 的警告行产生差异，没有为此打印警告。这是已知的有损往返。
+- `create` 的位置参数与 `in` 子句：`in` 必须是最后两个 token（见 1.4-16）。
 
 ### 1.7 修订记录
 
@@ -202,11 +203,16 @@ main ──► cli ──► app ──► commands ──► model
 | v0.4 | 2026-10-18 | 实现 `model/` 时修订：① Composite 由"安全式"改为"透明式"（子节点管理方法上移到 `Shape`）；② `canUngroup()` 由 `Group` 上移到 `Shape`；③ 新增 `RootGroup`、`ShapeSpec`、`ShapeAttributes`、`ShapeState`、`NumberCodec`、`DocumentView`；④ 新增 1.4 第 8–10 条 | ① 安全式需要 `Shape` 与 `Group` 互相引用，产生循环依赖；② 命令只持有 `Shape`，需要无需类型断言的入口；③④ 实现中暴露的必要抽象与规范未覆盖的取值 |
 | v0.5 | 2026-10-18 | 实现 `commands/`：新增 `Shape.anchor()`（move 的回显需要区分叶子与容器）；新增 1.4 第 11–14 条；`ZOrderCommand` 用静态工厂 `front()` / `back()` | 规范的回显格式要求；redo 复用对象以保证引用有效 |
 | v0.6 | 2026-10-18 | 实现 `app/` 与 `cli/`：新增 `Interpreter`；cli 对 model 的访问收紧为白名单（新增 dependency-cruiser 规则）；新增 1.4 第 15–18 条；`HelpHandler` 改为接收函数而非 `CommandTable` | 测试与依赖检查中发现的问题（见过程记录） |
+| v0.7 | 2026-10-18 | 实现 `io/` 并接入 `read` / `save`：`Editor` 构造时注入 `FileSystem`；新增 1.4 第 19–22 条；1.6 补充"读入丢弃未知属性"这一已知局限；填写"一致性自查"与"质量保证手段" | 功能实现完成；测试发现 `xmldom` 会二次包装回调里抛出的异常，改为记录后统一抛出 |
 
 15. **Repl 与 Interpreter 分离**：`Interpreter.run(line): string[]` 不碰 stdin/stdout，负责分词、分发、把 `DomainError` 转成 `error: …`，非领域错误以 `error: internal: …` 报告但不中断会话；`Repl` 只做读写循环。这样脚本回放测试直接驱动 Interpreter，I/O 层单独用内存流测试。
 16. **`create` 的 `in` 子句**：处理器取"倒数第二个 token 恰为 `in`"作为尾缀，其余全部当位置参数。已知限制：若 text 内容恰好就是 `in` 且紧跟一个 id，会被误判为尾缀（需把内容放进引号并保证其不在倒数第二位）。
 17. **tree 的列对齐**：所有带描述的行统一对齐，描述列 = 全树最长"前缀 + 标签"+ 2 空格。规范三份示例中有两份（第 5.1 节、`other.svg` 读入）符合此规则，6.1 节手绘的流程图示例对齐方式不同（按同级分组、间隔 1 空格），属示例自身不一致，以多数示例为准。
 18. **运行方式**：`npm run cli` 交互；`npm run cli -- <脚本文件>` 回放脚本；管道输入亦可。非交互输入时，读到的行回显在提示符之后，输出即完整会话记录。额外提供 `exit` 命令（规范未要求），Ctrl+D 同样可退出。
+19. **`read` / `save` 的原子性**：`read` 先读文件、解析成功后才替换当前文档；读不到、XML 非法、id 重复时当前文档与 undo 历史原样保留。`save` 先序列化、写成功后才记录路径并清栈；写失败时历史、undo 许可与默认路径都不变。
+20. **默认保存路径**：`read <f>` 和 `save <f>` 成功后都把 `<f>` 记为当前路径，之后无参数 `save` 写回该路径；`init` 清除路径，此时无参数 `save` 报 `no file path. use 'save <file.svg>'`。
+21. **元素计数**：`saved to … (N elements)` / `read … (N elements)` 的 N 是除 `<svg>` 根之外的元素总数（含 `<g>`），与规范示例（5、7、8）一致。
+22. **读入时的 id 处理分两遍**：第一遍收集全部显式 id（同时检出重复 id），第二遍创建图形并给缺 id 的元素补 `标签名+序号`，因此补出的 id 不会与文件里后出现的显式 id 冲突（如无 id 的 `<rect>` 在文件里还有 `id="rect1"` 时，补成 `rect2`）。
 
 ## 2. 过程记录
 
@@ -218,11 +224,91 @@ _（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如�
 * **测试发现 `exit` 之后仍执行后续行**：readline 关闭后会继续发出同一块输入里已缓冲的行，导致脚本里 `exit` 后面的命令仍被执行。在行处理函数开头加守卫修复，并留下回归测试。
 * **我自己的测试假设错了**：长链 undo/redo 测试里对根级容器 `ungroup`，被规范规定的 `cannot ungroup top-level container` 拒绝。实现没错，错在测试，改为先 `addto` 进另一个容器。
 * **规范示例之间互相矛盾**：`tree` 的列对齐在三份示例里不一致，无法同时满足，取多数（见 1.4-17）。
+* **第三方库的行为与预期不符**：我（AI）最初假设在 `xmldom` 的 `onError` 回调里抛自己的 `InvalidSvgError` 即可；测试显示用户会看到 `error: internal: Reporting fatalError … caused InvalidSvgError`，因为库会把回调里抛出的异常再包一层，且致命错误它仍会自己抛 `ParseError`。动手前我用一段小脚本探测了库的真实行为（有效/无效输入各一组），最终改为"回调只记录第一个错误 + try/catch 捕获 `ParseError`，统一转成 `invalid svg: …`"。
+* **覆盖率暴露了测试盲区**：第一次跑覆盖率总体 92%，但明细显示 `Ellipse` 只有 27%、`addto` / `back` 两个命令从未经过 CLI 测试——此前测试只覆盖了我顺手写的几个场景。补了按图形类型参数化的 `LeafShapes.test.ts`（五种叶子共用同一套检查）和 `Handlers.test.ts` 后升到 98%。
+* **自查抓到的小违规**：用脚本检查"类名 = 文件名"，发现 `ReplOptions`、`ParseResult` 两个接口与类挤在同一文件，已拆出；`Repl` 里有一个赋值后从未使用的 `close` 字段（死代码），已删除。
+* **又一次测试预期写错**：我断言 `create rect r 0 0 1 1 in` 应报用法错误，实际上 `rect` 有可选的 `fill`，`in` 被当作颜色值——实现符合 1.4-16 的约定，错的是预期。改为用没有多余可选参数的 `circle` 来验证"多出来的 `in` 触发用法错误"。
 
 ## 3. 一致性自查
 
-_（实现完成后填写：① 实际目录与 1.1 是否一致，不一致处见修订记录；② 1.3 的依赖规则是否被违反，附 dependency-cruiser 结果与抽样检查。）_
+> 状态：功能实现完成后的一次自查（截至修订记录 v0.7）。打 tag `final` 之前需要用同样的方法重新核对一遍。
+
+### 3.1 模块划分：实际目录与方案是否一致？
+
+**一致。** `src/` 下的五个模块目录（`model` `commands` `io` `app` `cli`）加 `main.ts` 与 1.1 完全对应，没有新增或遗漏的模块。方案之外的差异都只发生在模块**内部**，已逐条记入修订记录：
+
+| 差异 | 记录 |
+|---|---|
+| `model` 的 Composite 改为透明式；新增 `RootGroup` `ShapeSpec` `ShapeAttributes` `ShapeState` `NumberCodec` `DocumentView` | v0.4 |
+| `Shape` 新增 `anchor()`；`commands` 新增 `NothingToUndoError` `NothingToRedoError` | v0.5 |
+| `cli` 新增 `Interpreter` `ReplOptions`；`HelpHandler` 改为接收函数 | v0.6 |
+| `io` 新增 `ParseResult` `FileReadError` `FileWriteError` `InvalidSvgError`；`Editor` 新增 `fileSystem` 构造参数 | v0.7 |
+
+约束"一类一文件、文件名 = 类名"也做了脚本检查：除两处接口与类同文件（已拆出）外，88 个源文件（含 main.ts）全部符合。
+
+### 3.2 依赖方向：方案里的规则有没有被违反？
+
+**没有。** 检查分两层：
+
+1. **工具检查**：`npm run deps`（dependency-cruiser，规则见 `.dependency-cruiser.cjs`）报告 `no dependency violations found`（92 个模块、257 条依赖）。规则含：无环；`model` 不依赖任何其他模块与第三方库；`commands` / `io` 不依赖 `app` `cli`；`app` 不依赖 `cli`；`cli` 不依赖 `commands` `io`，且对 `model` 只能引用白名单；XML 库只能在 `io` 里用。我还故意写入一条 `model → cli` 的依赖，确认规则会报错，然后删除。
+2. **抽样复核**（脚本统计各模块之间的 import 数量，与 1.3 对照）：
+
+| 实际依赖 | 次数 | 方案允许？ |
+|---|---|---|
+| `commands → model` | 33 | ✔ |
+| `io → model` | 11；`io → @xmldom` 1 | ✔ |
+| `app → commands` / `io` / `model` | 11 / 3 / 8 | ✔ |
+| `cli → app` | 22 | ✔ |
+| `cli → model` | 12，仅涉及 `ShapeView` `DocumentView` `NumberCodec` `errors/DomainError` `errors/InvalidArgumentsError` | ✔（白名单内） |
+| `main → app` `cli` `io` | 各 1 | ✔（组合根） |
+| `model → *`、`commands → io/app/cli`、`io → commands/app/cli`、`app → cli`、`cli → commands/io` | 0 | — |
+
+**过程中曾出现过的违反**：实现 `HelpHandler` 时我（AI）引入了 `CommandTable ⇄ HelpHandler` 的循环依赖，被 `no-circular` 规则当场拦下并修复，见"过程记录"。
+
+### 3.3 规范禁令的自查
+
+| 规范要求 | 检查方法 | 结果 |
+|---|---|---|
+| 禁止按类型名 `switch` / `instanceof` 分派 | `grep` 全部 `src/` | `switch` 仅出现在 5 个叶子图形的 `setOwnAttribute` 里，分派的是**属性名**（白名单校验），不是图形类型；`instanceof` 仅用于判断是否 `Error` / `DomainError`，没有按图形类型分派 |
+| 按名字分派只允许两处，且标注待重构 | 代码审阅 | 仅 `cli/CommandTable`（命令名 → 处理器）与 `model/ShapeFactory`（类型名 → `ShapeSpec`），两处的注释与 1.2 节均标注"待重构" |
+| 容器与叶子统一操作 | 测试 | `move` `scale` `set` `delete` 对 `g` 与叶子走同一条命令类，没有 `if (isGroup)`；`Handlers.test.ts` `EditCommands.test.ts` 覆盖 |
+| 命令失败不改变任何状态 | 测试 | 所有命令的每个错误场景都比对"前后整棵树快照 + undo 深度"（`expectFailsWithoutChange`），另有 `read` / `save` 失败不改变文档与历史的用例 |
 
 ## 4. 质量保证手段
 
-_（实现完成后填写：测试策略、transcript 回放、覆盖率、依赖检查等。）_
+### 4.1 功能是否完整？
+
+对照规范第 3 节命令总表逐条核对：`init` `read` `save` `canvas` `create`（六种类型 + `in` 子句）`delete` `move` `scale` `set` `group` `ungroup` `addto` `front` `back` `tree` `show` `help` `undo` `redo` 共 19 条命令全部实现，并各有测试。第 4.2 节错误信息表中的 11 种错误文本逐字有断言（`Interpreter.test.ts` 的 `it.each` 表）。第 4.4 节 `box` 属后续阶段，本阶段按规范报 `unknown shape type`，有测试。
+
+**以规范的完整 transcript 作为验收标准**（逐行断言输出，不是"大致像"）：
+
+| 来源 | 测试 | 说明 |
+|---|---|---|
+| 规范第 6 节完整会话（含 `save` / `read other.svg` / 补 id 警告） | `SessionWithIo.test.ts` | 17 步，输出与规范逐字一致 |
+| 规范 6.1 流程图（`in` 子句，保存为 8 个元素） | `Interpreter.test.ts` `SessionWithIo.test.ts` | 唯一的差异是 `tree` 列对齐（见 1.4-17） |
+| 规范 0.1 的最小 SVG | `SvgSerializer.test.ts` | 按规范所说的 5 条命令生成，与规范给出的文本**逐字节**相同 |
+| 规范 0.1 的 `transform` 示例、`other.svg` | `SvgParser.test.ts` | 读入后的树与规范一致 |
+
+### 4.2 对代码质量的信心来自哪里？
+
+| 手段 | 做法 | 结果（截至 v0.7） |
+|---|---|---|
+| **自动化测试** | `vitest`；`npm test` | 15 个测试文件、214 个用例，全部通过 |
+| **覆盖率** | `npm run coverage`（v8） | 语句 98.2%、分支 91.7%、函数 97.2%、行 98.2% |
+| **类型检查** | `tsc --strict`，另开 `noUncheckedIndexedAccess` `noImplicitOverride` | 0 错误 |
+| **架构约束** | `dependency-cruiser` 把 1.3 的依赖规则写成可执行配置 | 0 违反；曾拦下一次循环依赖 |
+| **一键校验** | `npm run check` = 类型检查 + 依赖检查 + 测试 | 通过 |
+| **端到端** | 用真实文件系统跑 `examples/` 下的脚本，再把生成的 SVG 读回 | 输出与规范一致，往返后文件逐字节相同（`SvgSerializer.test.ts` 的往返用例） |
+
+测试的组织方式：
+- **分层测**：`model` 测图形行为与精确还原；`commands` 测每条命令的"执行 / undo / redo / 失败不改状态"；`io` 测序列化与解析；`cli` 测分词、分发与 transcript；`Repl` 用内存流测 I/O 层。`FileSystem` 是接口，`cli` / `app` 的测试全部用内存实现，不碰磁盘。
+- **性质类断言**：undo 到底应回到空文档、redo 到底应回到终态（长链用例）；`group` 成员下标交错时 undo 逐位还原；`scale 0.3` / `move 0.1 0.2` 之后 undo 后的数值与原值**逐位相同**（用快照而不是反向运算）；`save` → `read` → `save` 两次输出相同。
+- **每次发现问题都补回归测试**（见"过程记录"）。
+
+### 4.3 已知局限（如实列出）
+
+- 交互式终端（TTY）下的行编辑 / 提示符行为只在管道与脚本输入下验证过，没有在真实终端里自动化测试。
+- `tree` 的列对齐无法同时满足规范中互相矛盾的示例（见 1.4-17）。
+- `read` → `save` 会静默丢弃图形类型不认识的属性（见 1.6）。
+- undo / redo 的回显文本，除规范给出的 `move` 与 `set` 外，其余为自拟（见 1.4-13），若评测有逐字要求则可能不符。
+- 覆盖率未覆盖的约 2% 主要是防御性分支（"状态值类型不符"之类的内部断言）。

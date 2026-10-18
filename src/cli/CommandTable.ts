@@ -11,7 +11,9 @@ import { GroupHandler } from './handlers/GroupHandler.js';
 import { HelpHandler } from './handlers/HelpHandler.js';
 import { InitHandler } from './handlers/InitHandler.js';
 import { MoveHandler } from './handlers/MoveHandler.js';
+import { ReadHandler } from './handlers/ReadHandler.js';
 import { RedoHandler } from './handlers/RedoHandler.js';
+import { SaveHandler } from './handlers/SaveHandler.js';
 import { ScaleHandler } from './handlers/ScaleHandler.js';
 import { SetHandler } from './handlers/SetHandler.js';
 import { ShowHandler } from './handlers/ShowHandler.js';
@@ -31,6 +33,8 @@ export class CommandTable {
     const table = new CommandTable();
     for (const handler of [
       new InitHandler(),
+      new ReadHandler(),
+      new SaveHandler(),
       new CanvasHandler(),
       new CreateHandler(),
       new DeleteHandler(),

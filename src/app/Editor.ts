@@ -9,12 +9,16 @@ import { ScaleCommand } from '../commands/ScaleCommand.js';
 import { SetAttributeCommand } from '../commands/SetAttributeCommand.js';
 import { UngroupCommand } from '../commands/UngroupCommand.js';
 import { ZOrderCommand } from '../commands/ZOrderCommand.js';
+import type { FileSystem } from '../io/FileSystem.js';
+import { SvgParser } from '../io/SvgParser.js';
+import { SvgSerializer } from '../io/SvgSerializer.js';
 import { Document } from '../model/Document.js';
 import type { DocumentView } from '../model/DocumentView.js';
 import { NumberCodec } from '../model/NumberCodec.js';
 import { ShapeFactory } from '../model/ShapeFactory.js';
 import type { ShapeView } from '../model/ShapeView.js';
 import { NoDocumentError } from './NoDocumentError.js';
+import { NoFilePathError } from './NoFilePathError.js';
 import { UndoNotAllowedError } from './UndoNotAllowedError.js';
 
 /**
@@ -25,16 +29,48 @@ export class Editor {
   private document: Document | null = null;
   private readonly history = new History();
   private undoBlockedByIo = false;
+  /** 当前文档最近一次 read / save 的路径；`save` 不带参数时写回这里。 */
+  private currentPath: string | null = null;
+  private readonly parser: SvgParser;
+  private readonly serializer = new SvgSerializer();
 
-  constructor(private readonly factory: ShapeFactory = ShapeFactory.withBuiltIns()) {}
+  constructor(
+    private readonly fileSystem: FileSystem,
+    private readonly factory: ShapeFactory = ShapeFactory.withBuiltIns(),
+  ) {
+    this.parser = new SvgParser(factory);
+  }
 
   // ---- 文档类（执行后 undo/redo 禁止） ----
 
   /** 新建空画布并作为当前文档。 */
   init(width: number = 800, height: number = 600): string {
     this.document = new Document(width, height);
+    this.currentPath = null;
     this.afterIoCommand();
     return `canvas ${NumberCodec.format(width)}x${NumberCodec.format(height)} created`;
+  }
+
+  /** 读入 SVG 文件作为当前文档；返回警告行（缺 id 补全等）加一行结果摘要。读入失败时当前文档保持不变。 */
+  read(path: string): string[] {
+    const { document, warnings } = this.parser.parse(this.fileSystem.readText(path));
+    this.document = document;
+    this.currentPath = path;
+    this.afterIoCommand();
+    return [...warnings, `read ${path} (${document.elementCount()} elements)`];
+  }
+
+  /** 保存当前文档；省略路径时写回读入 / 上次保存的路径。 */
+  save(path?: string): string {
+    const document = this.requireDocument();
+    const target = path ?? this.currentPath;
+    if (target === null) {
+      throw new NoFilePathError();
+    }
+    this.fileSystem.writeText(target, this.serializer.serialize(document));
+    this.currentPath = target;
+    this.afterIoCommand();
+    return `saved to ${target} (${document.elementCount()} elements)`;
   }
 
   /** 无参数：显示画布尺寸；带参数：修改尺寸。 */
