@@ -98,6 +98,9 @@ export abstract class Shape implements ShapeView {
 
   abstract translate(dx: number, dy: number): void;
 
+  /** 图形的参考点（用于 move 的反馈）；容器没有单一参考点，返回 null。 */
+  abstract anchor(): readonly [number, number] | null;
+
   /** 等比缩放：因子同乘全部几何属性；容器递归到子孙。非正因子在改动任何东西之前拒绝。 */
   scale(factor: number): void {
     if (!Number.isFinite(factor) || factor <= 0) {

@@ -43,6 +43,10 @@ export class Line extends Shape {
     return this._y2;
   }
 
+  anchor(): readonly [number, number] {
+    return [this._x1, this._y1];
+  }
+
   translate(dx: number, dy: number): void {
     this._x1 += dx;
     this._y1 += dy;

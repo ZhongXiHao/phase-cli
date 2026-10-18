@@ -23,7 +23,7 @@ doc/README.md   本文档
 | 模块 | 职责 | 主要类（一类一文件，文件名 = 类名） |
 |---|---|---|
 | **model** | 表达"文档里有什么"。图形层次、父子关系、id 唯一性、几何变换（move/scale）、属性白名单校验、状态快照（Memento）。**不认识 SVG 文本、不认识命令行、不输出任何文字** | `Shape`（抽象基类）、`Rect` `Circle` `Ellipse` `Line` `Text`、`Group`、`RootGroup`（画布根）、`Document`、`ShapeFactory`、`ShapeSpec`（类型创建说明书）、`ShapeAttributes`、`ShapeState`（Memento）、`NumberCodec`、`StyleInit`、`ShapeView` / `DocumentView`（只读接口）、`DomainError` 及 `errors/` 下的各子类 |
-| **commands** | 表达"一次可撤销的编辑"。每条编辑命令一个类，自带 `execute / undo`；`History` 管理撤销栈与重做栈 | `Command`（接口）、`CreateShapeCommand` `DeleteShapeCommand` `MoveCommand` `ScaleCommand` `SetAttributeCommand` `GroupCommand` `UngroupCommand` `AddToCommand` `ZOrderCommand`、`History` |
+| **commands** | 表达"一次可撤销的编辑"。每条编辑命令一个类，自带 `execute / undo`；`History` 管理撤销栈与重做栈 | `Command`（接口）、`CreateShapeCommand` `DeleteShapeCommand` `MoveCommand` `ScaleCommand` `SetAttributeCommand` `GroupCommand` `UngroupCommand` `AddToCommand` `ZOrderCommand`（`front()` / `back()` 两个静态工厂）、`History`、`NothingToUndoError` `NothingToRedoError` |
 | **io** | 表达"文档与外部世界的转换"：Document ⇄ SVG 文本；文件读写经接口隔离，测试时可换成内存实现 | `SvgSerializer`、`SvgParser`、`FileSystem`（接口）、`NodeFileSystem` |
 | **app** | 表达"一个编辑会话"：持有当前 Document、History、读入路径、"io 命令后禁止 undo"的栏位；对外提供与界面无关的用例方法（`createShape` `move` `undo` `save`…）。**不打印、不解析命令行**，换 GUI / agent 时可原样复用 | `Editor` |
 | **cli** | 表达"文本交互"：读一行、分词（引号、`#` 注释）、查表分发到处理器、把结果渲染为文字（`error:` 前缀、tree、show、help） | `Repl`、`Tokenizer`、`CommandTable`、`CliHandler`（抽象基类）及每条用户命令一个处理器、`TreeRenderer`、`ShowRenderer` |
@@ -169,6 +169,10 @@ main ──► cli ──► app ──► commands ──► model
 8. **对容器 `set`**：只接受 `fill` / `stroke` / `stroke-width`，并递归设置到全部子孙（规范要求容器与叶子统一操作，但未定义几何属性如何作用于容器，故拒绝 `set g1 x 5`，报 `unknown attribute: x`）。先整体校验后赋值，保证失败不改状态。
 9. **画布根是特殊容器**：`Document.root` 是 `RootGroup`（`kind=svg`），不参与 `find`，不能被 `ungroup`；因此用户可以创建 id 为 `svg` 的图形而不冲突。`Document.isTopLevel(shape)` 判断"是否根的直接子节点"，用于 `ungroup` 的 `cannot ungroup top-level container` 检查。
 10. **图形创建说明书 `ShapeSpec`**：每个图形类提供静态 `spec()`，包含类型名、位置参数表和构造函数；CLI 的位置参数与 SVG 属性都先归一成"属性名 → 值"再交给同一个构造函数。缺省数值按 SVG 规则取 0。
+11. **命令的可重做性与对象身份**：redo 就是对同一个 Command 对象再次 `execute()`。`CreateShapeCommand` / `GroupCommand` 首次执行时创建图形，之后复用同一个对象；`DeleteShapeCommand` 摘下的是原对象并原样放回。这样即使其他命令持有了图形引用，undo → redo 之后引用依然有效。所有命令每次 `execute` 都按 id 重新解析目标。
+12. **精确还原靠快照**：`move` / `scale` / `set` 的 undo 都用 `captureState / restoreState`；对容器 `set`，每个子孙回到各自原来的值（不是统一的某个旧值）。
+13. **undo 回显文本**（规范只给了 move 与 set 两种，其余为自拟）：`created`↔`removed`；`deleted`↔`restored into <父>`；`moved to (x,y)`↔`moved back to (x,y)`（容器用 `moved by` / `moved back by`）；`group`↔`removed (n children restored)`；`ungroup`↔`restored with n children`；`addto`↔`moved back into <原父>`；`front/back`↔`z-order restored`；`scale`↔`scale undone`。
+14. **`group` 的 undo 顺序**：成员按原下标**升序**放回各自原父容器，可证明这样每次放回时前驱位置都未被扰动，从而逐位还原（`tests/commands` 里有交错下标的用例）。
 
 ### 1.5 变化点假设
 
@@ -195,6 +199,7 @@ main ──► cli ──► app ──► commands ──► model
 | v0.2 | 2026-10-18 | 确认 `save` 后保留 undo 栈（`save` 本身不入栈）；确认 `group` 落在第一个成员的位置 | 消除规范未明确处的歧义 |
 | v0.3 | 2026-10-18 | 修订 v0.2：`init` / `read` / `save` / `canvas` 四条 io 命令一律清空 undo 与 redo 栈；曾讨论 `undo --ignore-io` 越界参数，决定不做 | 贴合规范 4.3 的字面要求，规则最简单，避免评测差异 |
 | v0.4 | 2026-10-18 | 实现 `model/` 时修订：① Composite 由"安全式"改为"透明式"（子节点管理方法上移到 `Shape`）；② `canUngroup()` 由 `Group` 上移到 `Shape`；③ 新增 `RootGroup`、`ShapeSpec`、`ShapeAttributes`、`ShapeState`、`NumberCodec`、`DocumentView`；④ 新增 1.4 第 8–10 条 | ① 安全式需要 `Shape` 与 `Group` 互相引用，产生循环依赖；② 命令只持有 `Shape`，需要无需类型断言的入口；③④ 实现中暴露的必要抽象与规范未覆盖的取值 |
+| v0.5 | 2026-10-18 | 实现 `commands/`：新增 `Shape.anchor()`（move 的回显需要区分叶子与容器）；新增 1.4 第 11–14 条；`ZOrderCommand` 用静态工厂 `front()` / `back()` | 规范的回显格式要求；redo 复用对象以保证引用有效 |
 
 ## 2. 过程记录
 

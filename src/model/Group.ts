@@ -67,6 +67,10 @@ export class Group extends Shape {
     return true;
   }
 
+  anchor(): null {
+    return null;
+  }
+
   translate(dx: number, dy: number): void {
     for (const child of this.childList) {
       child.translate(dx, dy);

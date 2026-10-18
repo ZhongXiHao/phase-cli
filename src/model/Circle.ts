@@ -38,6 +38,10 @@ export class Circle extends Shape {
     return this._r;
   }
 
+  anchor(): readonly [number, number] {
+    return [this._cx, this._cy];
+  }
+
   translate(dx: number, dy: number): void {
     this._cx += dx;
     this._cy += dy;

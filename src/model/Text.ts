@@ -42,6 +42,10 @@ export class Text extends Shape {
     return this._content;
   }
 
+  anchor(): readonly [number, number] {
+    return [this._x, this._y];
+  }
+
   translate(dx: number, dy: number): void {
     this._x += dx;
     this._y += dy;
