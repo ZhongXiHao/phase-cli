@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs';
+import { Readable } from 'node:stream';
 import { Editor } from './app/Editor.js';
 import { Repl } from './cli/Repl.js';
 import { NodeFileSystem } from './io/NodeFileSystem.js';
@@ -10,11 +10,14 @@ import { NodeFileSystem } from './io/NodeFileSystem.js';
  *   <命令> | npm run cli         管道输入
  */
 async function main(): Promise<void> {
+  const fileSystem = new NodeFileSystem();
   const scriptPath = process.argv[2];
-  const input = scriptPath === undefined ? process.stdin : createReadStream(scriptPath, { encoding: 'utf8' });
+
+  // 脚本文件经由与 `read` 相同的文件系统读入：读不到时得到统一的 `cannot read file`，而不是流错误的堆栈
+  const input = scriptPath === undefined ? process.stdin : Readable.from([fileSystem.readText(scriptPath)]);
   const interactive = scriptPath === undefined && process.stdin.isTTY === true;
 
-  const repl = new Repl(new Editor(new NodeFileSystem()), input, process.stdout, { echoInput: !interactive, interactive });
+  const repl = new Repl(new Editor(fileSystem), input, process.stdout, { echoInput: !interactive, interactive });
   await repl.run();
 }
 
