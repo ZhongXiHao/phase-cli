@@ -1,6 +1,6 @@
 # SVG Editor（CLI）— Lab1 Phase 1
 
-> 状态：**架构方案草案 v0.1**（实现前）。"过程记录 / 一致性自查 / 质量保证手段"三节在实现过程中逐步填写。
+> 状态：**功能实现完成（修订记录至 v0.10）**。运行方式见 1.4-18；打 tag `final` 之前需要把"一致性自查"重新核对一遍。
 
 ## 1. 架构方案
 
@@ -48,7 +48,7 @@ main --> cli
 main --> app
 main --> io
 cli --> app
-cli ..> model : <<read-only>>\nShapeView / DomainError
+cli ..> model : <<read-only>>\nShapeView / DocumentView /\nNumberCodec / errors
 app --> commands
 app --> io
 app --> model
@@ -73,26 +73,38 @@ abstract class Shape {
   +translate(dx, dy)
   +scale(f)
   +setAttribute(name, value)
-  +captureState(): Memento
-  +restoreState(m)
+  +anchor()
+  +captureState(): ShapeState
+  +restoreState(s)
+  +children() / insertChild() / removeChild() / indexOf()
+  +canUngroup()
 }
+note right of Shape
+  透明式 Composite：子节点管理方法
+  声明在基类，叶子调用时抛 not a container
+end note
 class Group {
   -childList: Shape[]
-  +insertChild(s, index)
-  +removeChild(s)
-  +translate() / scale()  <<递归>>
+  +translate() / scale() / setAttribute()  <<递归>>
 }
+class RootGroup
 Shape <|-- Rect
 Shape <|-- Circle
 Shape <|-- Ellipse
 Shape <|-- Line
 Shape <|-- Text
 Shape <|-- Group
+Group <|-- RootGroup
 ShapeView <|.. Shape
 Group o-- "0..*" Shape
-class Document { canvas; root: Group; find(id) }
-Document *-- Group
-class ShapeFactory { create(type, id, attrs) }
+class ShapeState <<Memento>>
+Shape ..> ShapeState
+class Document { width; height; root: RootGroup; find(id) }
+Document *-- RootGroup
+class ShapeSpec { type; fromArguments(); fromAttributes() }
+class ShapeFactory { register(spec); create(); createFromAttributes() }
+ShapeFactory o-- "0..*" ShapeSpec
+ShapeSpec ..> Shape : builds
 
 interface Command {
   +execute(): string
@@ -110,6 +122,9 @@ Command <|.. ZOrderCommand
 class History { undoStack; redoStack; run(cmd); undo(); redo() }
 History o-- Command
 Command ..> Document
+class Editor <<Facade>>
+Editor --> History
+Editor --> Document
 @enduml
 ```
 
@@ -120,9 +135,9 @@ Command ..> Document
 | **Command**（必选） | 编辑可撤销 / 重做；一条命令 = 一个 undo 单元 | `Command` 接口：`execute()` / `undo()` 各返回一行结果摘要（如 `circle#c1 moved back to (100,100)`）。每条编辑命令一个类，构造时只保存参数，`execute` 时记录还原所需信息。`History.run(cmd)` 执行成功后入栈并清空 redo 栈；执行抛错则**不入栈**。`group g1 a b c` 是一个 `GroupCommand`，内部记录所有成员原来的（父容器, 下标），一次 undo 全部还原。显示类命令不是 Command，不经过 History |
 | **Composite** | 容器与叶子统一操作 | `Shape` 为统一抽象，采用**透明式 Composite**：`children / insertChild / removeChild / indexOf / canUngroup` 直接声明在 `Shape` 上，叶子调用子节点管理方法抛 `not a container`；`Group` 持有 `Shape[]`，其 `translate/scale/setAttribute` 递归转发给子节点。**调用方不写 `if (isGroup)` 也不做类型断言**，命令类只面向 `Shape` 编程。选透明式而非安全式，是因为安全式要求 `Shape` 引用 `Group` 类型，两者互相 import 会形成循环依赖，被依赖检查拒绝 |
 | **Memento** | 让 move/scale/set 的 undo 精确还原 | `Shape.captureState()` 返回不透明快照，`restoreState()` 还原；`Group` 的快照递归包含子孙。**不用"反向操作"**：`scale 0.3` 再 `scale 1/0.3` 会有浮点误差，快照则逐位精确 |
-| **Factory（简单工厂 + 注册表）** | 类型名 → 图形类；CLI 与 SVG 读入共用同一创建路径 | `ShapeFactory.create(type, id, attrs)`，`attrs` 的键直接用 SVG 属性名（`x y width height fill`…），CLI 位置参数按类型的参数表映射成属性名，`SvgParser` 则直接传 XML 属性 |
+| **Factory（简单工厂 + 注册表）** | 类型名 → 图形类；CLI 与 SVG 读入共用同一创建路径 | 每种图形提供一份 `ShapeSpec`（类型名、位置参数表、构造函数），`ShapeFactory` 持有 `类型名 → ShapeSpec` 的注册表。CLI 路径 `create(type, id, args)` 按参数表把位置参数映射成属性名，SVG 读入路径 `createFromAttributes(type, id, attrs)` 直接传 XML 属性，两条路径共用同一个构造函数；属性名统一用 SVG 属性名（`x y width height fill`…） |
 | **Facade** | 隔离界面与内核 | `Editor` 是 cli 唯一能调用的入口 |
-| **Template Method** | 去重处理器里的参数个数校验、错误转文字 | `CliHandler.run()` 先校验参数个数，再调子类 `execute()`，捕获 `DomainError` 统一加 `error:` 前缀 |
+| **Template Method** | 去重各个命令处理器里的参数个数校验 | `CliHandler.run()` 先校验参数个数（不符则抛 `usage: …`），再调子类 `execute()`；`DomainError` 到 `error: …` 的转换集中在 `Interpreter` |
 
 **被明确放弃的方案：Visitor**。序列化和 tree 显示看似适合 Visitor，但 Visitor 要求接口里列出所有具体图形（`visitRect…`），后续插件化阶段新增 `box` 时每个 Visitor 都要改，违背"内核新增代码为 0"。改用：`Shape.kind`（标签名）+ `Shape.attributes()`（有序的属性键值对）+ `Shape.describe()`（tree 内联的几何摘要，如 `x=0 y=0 w=800 h=600 fill=#ffffff`）+ `Group.children()`。`SvgSerializer` 与 `TreeRenderer` 只靠这几个多态方法遍历，不需要认识任何具体图形类。
 
@@ -156,10 +171,10 @@ main ──► cli ──► app ──► commands ──► model
 | `main` | 所有模块 | — | 组合根，唯一允许认识全部实现类的地方（注入 `NodeFileSystem`、`process.stdin/stdout`） |
 
 补充规则：
-1. **`model` 内部**：`Group` 的子节点变更方法（`insertChild / removeChild`）只允许 `commands` 调用，`cli` 看不到（`ShapeView` 不含它们）。
+1. **变更入口的可见性**：`Shape` 上的子节点变更方法（`insertChild / removeChild`）只有 `commands` 会调用；`cli` 拿到的只是 `ShapeView`，类型上就看不到它们。
 2. **副作用边界**：只有 `io/NodeFileSystem` 与 `cli/Repl` 触碰真实的 fs / stdio，其余模块纯内存，便于测试。
 3. **cli 对 model 的访问面是白名单**：`dependency-cruiser` 规则 `cli-reads-model-through-views` 只允许 cli 引用 `shape/ShapeView`、`DocumentView`、`NumberCodec` 与 `errors/`，引用 `Shape`、`Group`、`Document` 等任何可变类型即报错。
-4. **执行方式**：用 `dependency-cruiser` 配置上述规则并纳入 `npm test`，违反即视为"待处理项"。
+4. **执行方式**：用 `dependency-cruiser` 配置上述规则并纳入 `npm run check`（类型检查 + 依赖检查 + 测试；依赖检查也可单独跑 `npm run deps`），违反即视为"待处理项"。
 5. **`model` 内部分层，依赖单向**：`errors` ← `NumberCodec` ← `shape` ← `Document`。即 `errors/` 不依赖 model 里的其他任何东西；`NumberCodec` 只依赖 `errors/`；`shape/` 自成一体，不依赖 `Document` / `DocumentView`；只有 `Document` 位于最上层，依赖 `shape/`。三条分别由规则 `model-errors-are-leaf`、`model-numbercodec-below-shape`、`model-shape-is-self-contained` 强制。理由：`Document` 是图形的聚合，图形不应反过来知道自己装在什么文档里；`NumberCodec` 是被图形使用的底层工具，因此留在 `shape/` 之外也不会形成环。
 
 ### 1.4 关键设计决策（实现层面）
@@ -178,6 +193,14 @@ main ──► cli ──► app ──► commands ──► model
 12. **精确还原靠快照**：`move` / `scale` / `set` 的 undo 都用 `captureState / restoreState`；对容器 `set`，每个子孙回到各自原来的值（不是统一的某个旧值）。
 13. **undo 回显文本**（规范只给了 move 与 set 两种，其余为自拟）：`created`↔`removed`；`deleted`↔`restored into <父>`；`moved to (x,y)`↔`moved back to (x,y)`（容器用 `moved by` / `moved back by`）；`group`↔`removed (n children restored)`；`ungroup`↔`restored with n children`；`addto`↔`moved back into <原父>`；`front/back`↔`z-order restored`；`scale`↔`scale undone`。
 14. **`group` 的 undo 顺序**：成员按原下标**升序**放回各自原父容器，可证明这样每次放回时前驱位置都未被扰动，从而逐位还原（`tests/commands` 里有交错下标的用例）。
+15. **Repl 与 Interpreter 分离**：`Interpreter.run(line): string[]` 不碰 stdin/stdout，负责分词、分发、把 `DomainError` 转成 `error: …`，非领域错误以 `error: internal: …` 报告但不中断会话；`Repl` 只做读写循环。这样脚本回放测试直接驱动 Interpreter，I/O 层单独用内存流测试。
+16. **`create` 的 `in` 子句**：处理器取"倒数第二个 token 恰为 `in`"作为尾缀，其余全部当位置参数。已知限制：若 text 内容恰好就是 `in` 且紧跟一个 id，会被误判为尾缀（需把内容放进引号并保证其不在倒数第二位）。
+17. **tree 的列对齐**：所有带描述的行统一对齐，描述列 = 全树最长"前缀 + 标签"+ 2 空格。规范三份示例中有两份（第 5.1 节、`other.svg` 读入）符合此规则，6.1 节手绘的流程图示例对齐方式不同（按同级分组、间隔 1 空格），属示例自身不一致，以多数示例为准。
+18. **运行方式**：`npm run cli` 交互；`npm run cli -- <脚本文件>` 回放脚本；管道输入亦可。非交互输入时，读到的行回显在提示符之后，输出即完整会话记录。额外提供 `exit` 命令（规范未要求），Ctrl+D 同样可退出。
+19. **`read` / `save` 的原子性**：`read` 先读文件、解析成功后才替换当前文档；读不到、XML 非法、id 重复时当前文档与 undo 历史原样保留。`save` 先序列化、写成功后才记录路径并清栈；写失败时历史、undo 许可与默认路径都不变。
+20. **默认保存路径**：`read <f>` 和 `save <f>` 成功后都把 `<f>` 记为当前路径，之后无参数 `save` 写回该路径；`init` 清除路径，此时无参数 `save` 报 `no file path. use 'save <file.svg>'`。
+21. **元素计数**：`saved to … (N elements)` / `read … (N elements)` 的 N 是除 `<svg>` 根之外的元素总数（含 `<g>`），与规范示例（5、7、8）一致。
+22. **读入时的 id 处理分两遍**：第一遍收集全部显式 id（同时检出重复 id），第二遍创建图形并给缺 id 的元素补 `标签名+序号`，因此补出的 id 不会与文件里后出现的显式 id 冲突（如无 id 的 `<rect>` 在文件里还有 `id="rect1"` 时，补成 `rect2`）。
 
 ### 1.5 变化点假设
 
@@ -210,22 +233,11 @@ main ──► cli ──► app ──► commands ──► model
 | v0.7 | 2026-10-18 | 实现 `io/` 并接入 `read` / `save`：`Editor` 构造时注入 `FileSystem`；新增 1.4 第 19–22 条；1.6 补充"读入丢弃未知属性"这一已知局限；填写"一致性自查"与"质量保证手段" | 功能实现完成；测试发现 `xmldom` 会二次包装回调里抛出的异常，改为记录后统一抛出 |
 | v0.8 | 2026-10-20 | 新增 `tests/transcripts/SpecTranscripts.test.ts`：规范第 6 节与 6.1 节两个完整会话的逐步回放；更新 4.1 / 4.2 的测试数量 | 此前回放分散且不完整 |
 | v0.9 | 2026-10-20 | `model/` 内部整理：14 个图形相关文件移入 `model/shape/`（`Shape` `Rect` `Circle` `Ellipse` `Line` `Text` `Group` `RootGroup` `ShapeFactory` `ShapeSpec` `ShapeAttributes` `ShapeState` `ShapeView` `StyleInit`）；`Document` `DocumentView` `NumberCodec` 留在 `model/` 根，`errors/` 不变；新增 3 条 model 内部分层的依赖规则，cli 白名单路径改为 `shape/ShapeView` | `model/` 平铺 17 个文件，图形类与 `Document` 混放难以浏览；顶层模块划分不变 |
-
-15. **Repl 与 Interpreter 分离**：`Interpreter.run(line): string[]` 不碰 stdin/stdout，负责分词、分发、把 `DomainError` 转成 `error: …`，非领域错误以 `error: internal: …` 报告但不中断会话；`Repl` 只做读写循环。这样脚本回放测试直接驱动 Interpreter，I/O 层单独用内存流测试。
-16. **`create` 的 `in` 子句**：处理器取"倒数第二个 token 恰为 `in`"作为尾缀，其余全部当位置参数。已知限制：若 text 内容恰好就是 `in` 且紧跟一个 id，会被误判为尾缀（需把内容放进引号并保证其不在倒数第二位）。
-17. **tree 的列对齐**：所有带描述的行统一对齐，描述列 = 全树最长"前缀 + 标签"+ 2 空格。规范三份示例中有两份（第 5.1 节、`other.svg` 读入）符合此规则，6.1 节手绘的流程图示例对齐方式不同（按同级分组、间隔 1 空格），属示例自身不一致，以多数示例为准。
-18. **运行方式**：`npm run cli` 交互；`npm run cli -- <脚本文件>` 回放脚本；管道输入亦可。非交互输入时，读到的行回显在提示符之后，输出即完整会话记录。额外提供 `exit` 命令（规范未要求），Ctrl+D 同样可退出。
-19. **`read` / `save` 的原子性**：`read` 先读文件、解析成功后才替换当前文档；读不到、XML 非法、id 重复时当前文档与 undo 历史原样保留。`save` 先序列化、写成功后才记录路径并清栈；写失败时历史、undo 许可与默认路径都不变。
-20. **默认保存路径**：`read <f>` 和 `save <f>` 成功后都把 `<f>` 记为当前路径，之后无参数 `save` 写回该路径；`init` 清除路径，此时无参数 `save` 报 `no file path. use 'save <file.svg>'`。
-21. **元素计数**：`saved to … (N elements)` / `read … (N elements)` 的 N 是除 `<svg>` 根之外的元素总数（含 `<g>`），与规范示例（5、7、8）一致。
-22. **读入时的 id 处理分两遍**：第一遍收集全部显式 id（同时检出重复 id），第二遍创建图形并给缺 id 的元素补 `标签名+序号`，因此补出的 id 不会与文件里后出现的显式 id 冲突（如无 id 的 `<rect>` 在文件里还有 `id="rect1"` 时，补成 `rect2`）。
+| v0.10 | 2026-10-20 | 整体检查后的修订：① `main.ts` 的脚本文件改经 `NodeFileSystem` 读入，修复文件不存在时的崩溃；② 新增端到端测试（真正启动进程）和随机会话性质测试；③ 文档：1.4 第 15–22 条移回 1.4，重画类图，更正 1.2 / 1.3 里与代码不符的描述，更新状态行与测试数字 | 整体检查中发现的缺陷（见过程记录） |
 
 ## 2. 过程记录
 
-_（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如何确认与纠正。）_
-
 * 讨论过 undo --ignore-io，因为规范 4.3 要求字面一致、避免扣分而放弃
-
 * **依赖检查抓到我（AI）引入的循环依赖**：`HelpHandler` 为了列出全部命令引用了 `CommandTable`，而 `CommandTable` 又要构造 `HelpHandler`。`dependency-cruiser` 的 `no-circular` 规则报错后，改为 `HelpHandler` 只接收一个"返回处理器列表"的函数。同样的原因，model 层的 Composite 也从"安全式"改成了"透明式"（见 v0.4）。
 * **测试发现 `exit` 之后仍执行后续行**：readline 关闭后会继续发出同一块输入里已缓冲的行，导致脚本里 `exit` 后面的命令仍被执行。在行处理函数开头加守卫修复，并留下回归测试。
 * **我自己的测试假设错了**：长链 undo/redo 测试里对根级容器 `ungroup`，被规范规定的 `cannot ungroup top-level container` 拒绝。实现没错，错在测试，改为先 `addto` 进另一个容器。
@@ -233,13 +245,15 @@ _（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如�
 * **第三方库的行为与预期不符**：我（AI）最初假设在 `xmldom` 的 `onError` 回调里抛自己的 `InvalidSvgError` 即可；测试显示用户会看到 `error: internal: Reporting fatalError … caused InvalidSvgError`，因为库会把回调里抛出的异常再包一层，且致命错误它仍会自己抛 `ParseError`。动手前我用一段小脚本探测了库的真实行为（有效/无效输入各一组），最终改为"回调只记录第一个错误 + try/catch 捕获 `ParseError`，统一转成 `invalid svg: …`"。
 * **用户追问"两个完整会话是否做成了回放测试"，我如实核对后发现只做了一半**：第 6 节的回放漏了中间的 `tree`，6.1 节分散在两个文件里且没有 `tree` 与同会话的 `save`，也没有任何一个用真正的 `Repl` 验证整份会话文本。补了 `transcripts/SpecTranscripts.test.ts`，用同一张步骤表做 Interpreter 与 Repl 两种回放。为确认这些断言不是空转，我临时改坏两处实现（undo 回显文本、tree 的竖线字符），测试均如期失败，随后还原。
 * **用户提出把 `model/` 里图形相关的文件收进 `model/shape/`**：我没有直接动手，先用只读命令核对可行性——是否有图形类依赖 `Document`（没有，只有 `Document` 依赖图形），每个文件被多少处引用（约 45 行外部引用）。结论是可以做到 `shape/` 自成一体。对"全部放进 `shape/`"我提出了异议：`Document` 是图形的聚合、`NumberCodec` 是通用工具，放进名叫 `shape` 的目录名不副实，用户选了"只放图形相关"的方案。实现时用一个脚本统一改写 import（32 个文件），再用类型检查兜底；并把新的内部分层写成 3 条 dependency-cruiser 规则，逐条植入违规依赖确认会报错。重构前后用示例脚本对比输出，4 个文件（2 份会话输出 + 2 份生成的 SVG）逐字节相同。
+* **整体检查发现的运行时缺陷**：脚本文件不存在时（`npm run cli -- nope.txt`）进程带着一大段 `Unhandled 'error' event` 堆栈崩溃，因为脚本是用 `createReadStream` 打开的，流错误没人处理。进程内的内存流测试覆盖不到组合根 `main.ts`，所以此前一直没发现。修复为脚本也经 `NodeFileSystem` 读入，得到与 `read` 一致的 `error: cannot read file: …` 并以退出码 1 结束；补了真正启动进程的端到端测试，并确认换回旧版 `main.ts` 时该测试会失败。
+* **整体检查发现的文档缺陷**：① 1.4 的第 15–22 条被我（AI）错放到了 1.7 修订记录表的后面；② 1.1 的类图还是"安全式 Composite"的旧版本；③ 1.2 里工厂和模板方法两行的描述与代码不符（错误前缀转换其实在 `Interpreter`）；④ 1.3 说依赖检查"纳入 `npm test`"，实际要跑 `npm run check`；⑤ 顶部状态行与两处"截至 v0.7"过期。均已修正。
 * **覆盖率暴露了测试盲区**：第一次跑覆盖率总体 92%，但明细显示 `Ellipse` 只有 27%、`addto` / `back` 两个命令从未经过 CLI 测试——此前测试只覆盖了我顺手写的几个场景。补了按图形类型参数化的 `LeafShapes.test.ts`（五种叶子共用同一套检查）和 `Handlers.test.ts` 后升到 98%。
 * **自查抓到的小违规**：用脚本检查"类名 = 文件名"，发现 `ReplOptions`、`ParseResult` 两个接口与类挤在同一文件，已拆出；`Repl` 里有一个赋值后从未使用的 `close` 字段（死代码），已删除。
 * **又一次测试预期写错**：我断言 `create rect r 0 0 1 1 in` 应报用法错误，实际上 `rect` 有可选的 `fill`，`in` 被当作颜色值——实现符合 1.4-16 的约定，错的是预期。改为用没有多余可选参数的 `circle` 来验证"多出来的 `in` 触发用法错误"。
 
 ## 3. 一致性自查
 
-> 状态：功能实现完成后的一次自查（截至修订记录 v0.7）。打 tag `final` 之前需要用同样的方法重新核对一遍。
+> 状态：功能实现完成后的一次自查（截至修订记录 v0.10）。打 tag `final` 之前需要用同样的方法重新核对一遍。
 
 ### 3.1 模块划分：实际目录与方案是否一致？
 
@@ -287,7 +301,7 @@ _（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如�
 
 ### 4.1 功能是否完整？
 
-对照规范第 3 节命令总表逐条核对：`init` `read` `save` `canvas` `create`（六种类型 + `in` 子句）`delete` `move` `scale` `set` `group` `ungroup` `addto` `front` `back` `tree` `show` `help` `undo` `redo` 共 19 条命令全部实现，并各有测试。第 4.2 节错误信息表中的 11 种错误文本逐字有断言（`Interpreter.test.ts` 的 `it.each` 表）。第 4.4 节 `box` 属后续阶段，本阶段按规范报 `unknown shape type`，有测试。
+对照规范第 3 节命令总表逐条核对：`init` `read` `save` `canvas` `create`（六种类型 + `in` 子句）`delete` `move` `scale` `set` `group` `ungroup` `addto` `front` `back` `tree` `show` `help` `undo` `redo` 共 19 条命令全部实现，并各有测试。第 4.2 节错误信息表中的 11 种错误文本逐字有断言，分布在 `Interpreter.test.ts`（`it.each` 表、无文档 / io 屏障用例）、`StructureCommands.test.ts`（复合图形不可 ungroup、容器放入自身子孙）、`SessionWithIo.test.ts`（读写文件失败）和 `SpecTranscripts.test.ts` 中。第 4.4 节 `box` 属后续阶段，本阶段按规范报 `unknown shape type`，有测试。
 
 **以规范的完整 transcript 作为验收标准**（逐行断言输出，不是"大致像"）：
 
@@ -300,18 +314,20 @@ _（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如�
 
 ### 4.2 对代码质量的信心来自哪里？
 
-| 手段 | 做法 | 结果（截至 v0.7） |
+| 手段 | 做法 | 结果（截至 v0.10） |
 |---|---|---|
-| **自动化测试** | `vitest`；`npm test` | 16 个测试文件、221 个用例，全部通过 |
-| **覆盖率** | `npm run coverage`（v8） | 语句 98.2%、分支 91.7%、函数 97.2%、行 98.2% |
+| **自动化测试** | `vitest`；`npm test` | 18 个测试文件、228 个用例，全部通过 |
+| **覆盖率** | `npm run coverage`（v8） | 语句 98.2%、分支 92.3%、函数 97.2%、行 98.2%（统计范围不含 `main.ts`，后者由端到端测试覆盖） |
 | **类型检查** | `tsc --strict`，另开 `noUncheckedIndexedAccess` `noImplicitOverride` | 0 错误 |
 | **架构约束** | `dependency-cruiser` 把 1.3 的依赖规则写成可执行配置 | 0 违反；曾拦下一次循环依赖 |
 | **一键校验** | `npm run check` = 类型检查 + 依赖检查 + 测试 | 通过 |
-| **端到端** | 用真实文件系统跑 `examples/` 下的脚本，再把生成的 SVG 读回 | 输出与规范一致，往返后文件逐字节相同（`SvgSerializer.test.ts` 的往返用例） |
+| **端到端** | `tests/e2e/Cli.test.ts` 真正启动 `src/main.ts`（经 tsx），走真实的 stdin / 文件系统 / 退出码；另手动跑过 `examples/` 下的脚本 | 脚本回放、管道输入、缺失脚本文件、`exit` 均通过 |
+| **随机会话（性质测试）** | `tests/properties/RandomSessions.test.ts`：固定种子随机生成命令序列，每一步核对不变量（详见下） | 300×40 步 + 15×150 步的会话、100 个往返用例，全部通过 |
 
 测试的组织方式：
 - **分层测**：`model` 测图形行为与精确还原；`commands` 测每条命令的"执行 / undo / redo / 失败不改状态"；`io` 测序列化与解析；`cli` 测分词、分发与 transcript；`Repl` 用内存流测 I/O 层。`FileSystem` 是接口，`cli` / `app` 的测试全部用内存实现，不碰磁盘。
 - **性质类断言**：undo 到底应回到空文档、redo 到底应回到终态（长链用例）；`group` 成员下标交错时 undo 逐位还原；`scale 0.3` / `move 0.1 0.2` 之后 undo 后的数值与原值**逐位相同**（用快照而不是反向运算）；`save` → `read` → `save` 两次输出相同。
+- **随机会话**：命令生成器感知当前文档——约八成命令的目标取自真实存在的图形 / 容器，少数故意用不存在的 id、重复 id、非法参数，以同时走成功与失败路径。每一步核对：① 失败的命令不改变文档（用 `captureState` 的完整精度 JSON 加结构做快照，浮点漂移也会被发现）；② undo / redo 严格按"游标模型"回到之前的快照，到底 / 到顶时报 `nothing to undo / redo`，io 命令之后被拒；③ 树结构一致（id 唯一、父子双向一致）；④ 保存、读回后 `tree` 相同且无警告，`save → read → save` 逐字节相同。测试末尾有统计断言，要求每类命令至少成功 100 次且至少失败 1 次，防止生成器退化成"几乎全是失败"（第一版生成器正是这样：`ungroup` 成功 0 次，被该断言抓出）。我还故意破坏了 `group` 的 undo 顺序和 `move` 的 undo（改成反向平移），随机会话都在 seed=1 就报错。
 - **每次发现问题都补回归测试**（见"过程记录"）。
 
 ### 4.3 已知局限（如实列出）
