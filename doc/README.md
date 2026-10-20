@@ -237,19 +237,19 @@ main ──► cli ──► app ──► commands ──► model
 
 ## 2. 过程记录
 
-* 讨论过 undo --ignore-io，因为规范 4.3 要求字面一致、避免扣分而放弃
-* **依赖检查抓到我（AI）引入的循环依赖**：`HelpHandler` 为了列出全部命令引用了 `CommandTable`，而 `CommandTable` 又要构造 `HelpHandler`。`dependency-cruiser` 的 `no-circular` 规则报错后，改为 `HelpHandler` 只接收一个"返回处理器列表"的函数。同样的原因，model 层的 Composite 也从"安全式"改成了"透明式"（见 v0.4）。
+* **对 save 命令**：讨论过 undo --ignore-io，应允许撤销 save 之前的非 io 命令；但因为规范 4.3 要求字面一致、避免扣分而放弃
+* **依赖检查抓到我引入的循环依赖**：`HelpHandler` 为了列出全部命令引用了 `CommandTable`，而 `CommandTable` 又要构造 `HelpHandler`。`dependency-cruiser` 的 `no-circular` 规则报错后，改为 `HelpHandler` 只接收一个"返回处理器列表"的函数。同样的原因，model 层的 Composite 也从"安全式"改成了"透明式"（见 v0.4）。
 * **测试发现 `exit` 之后仍执行后续行**：readline 关闭后会继续发出同一块输入里已缓冲的行，导致脚本里 `exit` 后面的命令仍被执行。在行处理函数开头加守卫修复，并留下回归测试。
 * **我自己的测试假设错了**：长链 undo/redo 测试里对根级容器 `ungroup`，被规范规定的 `cannot ungroup top-level container` 拒绝。实现没错，错在测试，改为先 `addto` 进另一个容器。
 * **规范示例之间互相矛盾**：`tree` 的列对齐在三份示例里不一致，无法同时满足，取多数（见 1.4-17）。
 * **第三方库的行为与预期不符**：我（AI）最初假设在 `xmldom` 的 `onError` 回调里抛自己的 `InvalidSvgError` 即可；测试显示用户会看到 `error: internal: Reporting fatalError … caused InvalidSvgError`，因为库会把回调里抛出的异常再包一层，且致命错误它仍会自己抛 `ParseError`。动手前我用一段小脚本探测了库的真实行为（有效/无效输入各一组），最终改为"回调只记录第一个错误 + try/catch 捕获 `ParseError`，统一转成 `invalid svg: …`"。
-* **用户追问"两个完整会话是否做成了回放测试"，我如实核对后发现只做了一半**：第 6 节的回放漏了中间的 `tree`，6.1 节分散在两个文件里且没有 `tree` 与同会话的 `save`，也没有任何一个用真正的 `Repl` 验证整份会话文本。补了 `transcripts/SpecTranscripts.test.ts`，用同一张步骤表做 Interpreter 与 Repl 两种回放。为确认这些断言不是空转，我临时改坏两处实现（undo 回显文本、tree 的竖线字符），测试均如期失败，随后还原。
-* **用户提出把 `model/` 里图形相关的文件收进 `model/shape/`**：我没有直接动手，先用只读命令核对可行性——是否有图形类依赖 `Document`（没有，只有 `Document` 依赖图形），每个文件被多少处引用（约 45 行外部引用）。结论是可以做到 `shape/` 自成一体。对"全部放进 `shape/`"我提出了异议：`Document` 是图形的聚合、`NumberCodec` 是通用工具，放进名叫 `shape` 的目录名不副实，用户选了"只放图形相关"的方案。实现时用一个脚本统一改写 import（32 个文件），再用类型检查兜底；并把新的内部分层写成 3 条 dependency-cruiser 规则，逐条植入违规依赖确认会报错。重构前后用示例脚本对比输出，4 个文件（2 份会话输出 + 2 份生成的 SVG）逐字节相同。
+* **用户追问"两个完整会话是否做成了回放测试"，Agent 如实核对后发现只做了一半**：第 6 节的回放漏了中间的 `tree`，6.1 节分散在两个文件里且没有 `tree` 与同会话的 `save`，也没有任何一个用真正的 `Repl` 验证整份会话文本。补了 `transcripts/SpecTranscripts.test.ts`，用同一张步骤表做 Interpreter 与 Repl 两种回放。为确认这些断言不是空转，我临时改坏两处实现（undo 回显文本、tree 的竖线字符），测试均如期失败，随后还原。
+* **用户提出把 `model/` 里图形相关的文件收进 `model/shape/`**：Agent 没有直接动手，先用只读命令核对可行性——是否有图形类依赖 `Document`（没有，只有 `Document` 依赖图形），每个文件被多少处引用（约 45 行外部引用）。结论是可以做到 `shape/` 自成一体。对"全部放进 `shape/`"我提出了异议：`Document` 是图形的聚合、`NumberCodec` 是通用工具，放进名叫 `shape` 的目录名不副实，用户选了"只放图形相关"的方案。实现时用一个脚本统一改写 import（32 个文件），再用类型检查兜底；并把新的内部分层写成 3 条 dependency-cruiser 规则，逐条植入违规依赖确认会报错。重构前后用示例脚本对比输出，4 个文件（2 份会话输出 + 2 份生成的 SVG）逐字节相同。
 * **整体检查发现的运行时缺陷**：脚本文件不存在时（`npm run cli -- nope.txt`）进程带着一大段 `Unhandled 'error' event` 堆栈崩溃，因为脚本是用 `createReadStream` 打开的，流错误没人处理。进程内的内存流测试覆盖不到组合根 `main.ts`，所以此前一直没发现。修复为脚本也经 `NodeFileSystem` 读入，得到与 `read` 一致的 `error: cannot read file: …` 并以退出码 1 结束；补了真正启动进程的端到端测试，并确认换回旧版 `main.ts` 时该测试会失败。
 * **整体检查发现的文档缺陷**：① 1.4 的第 15–22 条被我（AI）错放到了 1.7 修订记录表的后面；② 1.1 的类图还是"安全式 Composite"的旧版本；③ 1.2 里工厂和模板方法两行的描述与代码不符（错误前缀转换其实在 `Interpreter`）；④ 1.3 说依赖检查"纳入 `npm test`"，实际要跑 `npm run check`；⑤ 顶部状态行与两处"截至 v0.7"过期。均已修正。
 * **覆盖率暴露了测试盲区**：第一次跑覆盖率总体 92%，但明细显示 `Ellipse` 只有 27%、`addto` / `back` 两个命令从未经过 CLI 测试——此前测试只覆盖了我顺手写的几个场景。补了按图形类型参数化的 `LeafShapes.test.ts`（五种叶子共用同一套检查）和 `Handlers.test.ts` 后升到 98%。
-* **自查抓到的小违规**：用脚本检查"类名 = 文件名"，发现 `ReplOptions`、`ParseResult` 两个接口与类挤在同一文件，已拆出；`Repl` 里有一个赋值后从未使用的 `close` 字段（死代码），已删除。
-* **又一次测试预期写错**：我断言 `create rect r 0 0 1 1 in` 应报用法错误，实际上 `rect` 有可选的 `fill`，`in` 被当作颜色值——实现符合 1.4-16 的约定，错的是预期。改为用没有多余可选参数的 `circle` 来验证"多出来的 `in` 触发用法错误"。
+* **Agent 自查抓到的小违规**：用脚本检查"类名 = 文件名"，发现 `ReplOptions`、`ParseResult` 两个接口与类挤在同一文件，已拆出；`Repl` 里有一个赋值后从未使用的 `close` 字段（死代码），已删除。
+* **又一次测试预期写错**：Agent 断言 `create rect r 0 0 1 1 in` 应报用法错误，实际上 `rect` 有可选的 `fill`，`in` 被当作颜色值——实现符合 1.4-16 的约定，错的是预期。改为用没有多余可选参数的 `circle` 来验证"多出来的 `in` 触发用法错误"。
 
 ## 3. 一致性自查
 
@@ -286,7 +286,7 @@ main ──► cli ──► app ──► commands ──► model
 | `main → app` `cli` `io` | 各 1 | ✔（组合根） |
 | `model → *`、`commands → io/app/cli`、`io → commands/app/cli`、`app → cli`、`cli → commands/io` | 0 | — |
 
-**过程中曾出现过的违反**：实现 `HelpHandler` 时我（AI）引入了 `CommandTable ⇄ HelpHandler` 的循环依赖，被 `no-circular` 规则当场拦下并修复，见"过程记录"。
+**过程中曾出现过的违反**：实现 `HelpHandler` 时 Agent 引入了 `CommandTable ⇄ HelpHandler` 的循环依赖，被 `no-circular` 规则当场拦下并修复，见"过程记录"。
 
 ### 3.3 规范禁令的自查
 
