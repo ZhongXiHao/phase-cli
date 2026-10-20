@@ -204,6 +204,7 @@ main ──► cli ──► app ──► commands ──► model
 | v0.5 | 2026-10-18 | 实现 `commands/`：新增 `Shape.anchor()`（move 的回显需要区分叶子与容器）；新增 1.4 第 11–14 条；`ZOrderCommand` 用静态工厂 `front()` / `back()` | 规范的回显格式要求；redo 复用对象以保证引用有效 |
 | v0.6 | 2026-10-18 | 实现 `app/` 与 `cli/`：新增 `Interpreter`；cli 对 model 的访问收紧为白名单（新增 dependency-cruiser 规则）；新增 1.4 第 15–18 条；`HelpHandler` 改为接收函数而非 `CommandTable` | 测试与依赖检查中发现的问题（见过程记录） |
 | v0.7 | 2026-10-18 | 实现 `io/` 并接入 `read` / `save`：`Editor` 构造时注入 `FileSystem`；新增 1.4 第 19–22 条；1.6 补充"读入丢弃未知属性"这一已知局限；填写"一致性自查"与"质量保证手段" | 功能实现完成；测试发现 `xmldom` 会二次包装回调里抛出的异常，改为记录后统一抛出 |
+| v0.8 | 2026-10-20 | 新增 `tests/transcripts/SpecTranscripts.test.ts`：规范第 6 节与 6.1 节两个完整会话的逐步回放；更新 4.1 / 4.2 的测试数量 | 此前回放分散且不完整 |
 
 15. **Repl 与 Interpreter 分离**：`Interpreter.run(line): string[]` 不碰 stdin/stdout，负责分词、分发、把 `DomainError` 转成 `error: …`，非领域错误以 `error: internal: …` 报告但不中断会话；`Repl` 只做读写循环。这样脚本回放测试直接驱动 Interpreter，I/O 层单独用内存流测试。
 16. **`create` 的 `in` 子句**：处理器取"倒数第二个 token 恰为 `in`"作为尾缀，其余全部当位置参数。已知限制：若 text 内容恰好就是 `in` 且紧跟一个 id，会被误判为尾缀（需把内容放进引号并保证其不在倒数第二位）。
@@ -225,6 +226,7 @@ _（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如�
 * **我自己的测试假设错了**：长链 undo/redo 测试里对根级容器 `ungroup`，被规范规定的 `cannot ungroup top-level container` 拒绝。实现没错，错在测试，改为先 `addto` 进另一个容器。
 * **规范示例之间互相矛盾**：`tree` 的列对齐在三份示例里不一致，无法同时满足，取多数（见 1.4-17）。
 * **第三方库的行为与预期不符**：我（AI）最初假设在 `xmldom` 的 `onError` 回调里抛自己的 `InvalidSvgError` 即可；测试显示用户会看到 `error: internal: Reporting fatalError … caused InvalidSvgError`，因为库会把回调里抛出的异常再包一层，且致命错误它仍会自己抛 `ParseError`。动手前我用一段小脚本探测了库的真实行为（有效/无效输入各一组），最终改为"回调只记录第一个错误 + try/catch 捕获 `ParseError`，统一转成 `invalid svg: …`"。
+* **用户追问"两个完整会话是否做成了回放测试"，我如实核对后发现只做了一半**：第 6 节的回放漏了中间的 `tree`，6.1 节分散在两个文件里且没有 `tree` 与同会话的 `save`，也没有任何一个用真正的 `Repl` 验证整份会话文本。补了 `transcripts/SpecTranscripts.test.ts`，用同一张步骤表做 Interpreter 与 Repl 两种回放。为确认这些断言不是空转，我临时改坏两处实现（undo 回显文本、tree 的竖线字符），测试均如期失败，随后还原。
 * **覆盖率暴露了测试盲区**：第一次跑覆盖率总体 92%，但明细显示 `Ellipse` 只有 27%、`addto` / `back` 两个命令从未经过 CLI 测试——此前测试只覆盖了我顺手写的几个场景。补了按图形类型参数化的 `LeafShapes.test.ts`（五种叶子共用同一套检查）和 `Handlers.test.ts` 后升到 98%。
 * **自查抓到的小违规**：用脚本检查"类名 = 文件名"，发现 `ReplOptions`、`ParseResult` 两个接口与类挤在同一文件，已拆出；`Repl` 里有一个赋值后从未使用的 `close` 字段（死代码），已删除。
 * **又一次测试预期写错**：我断言 `create rect r 0 0 1 1 in` 应报用法错误，实际上 `rect` 有可选的 `fill`，`in` 被当作颜色值——实现符合 1.4-16 的约定，错的是预期。改为用没有多余可选参数的 `circle` 来验证"多出来的 `in` 触发用法错误"。
@@ -284,8 +286,8 @@ _（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如�
 
 | 来源 | 测试 | 说明 |
 |---|---|---|
-| 规范第 6 节完整会话（含 `save` / `read other.svg` / 补 id 警告） | `SessionWithIo.test.ts` | 17 步，输出与规范逐字一致 |
-| 规范 6.1 流程图（`in` 子句，保存为 8 个元素） | `Interpreter.test.ts` `SessionWithIo.test.ts` | 唯一的差异是 `tree` 列对齐（见 1.4-17） |
+| 规范第 6 节完整会话（含 `save` / `read other.svg` / 补 id 警告、两次 `tree`） | `transcripts/SpecTranscripts.test.ts` | 19 步，命令顺序与输出和规范逐字一致；同一张步骤表既用 `Interpreter` 逐步断言，又用 `Repl` 断言整份会话文本（横幅、`svg> ` 提示符、回显的命令）；另断言写出的 `demo.svg` 内容 |
+| 规范 6.1 流程图版本 A（`in` 子句、`tree`、`move` / `undo`、`set`、`save` 为 8 个元素） | `transcripts/SpecTranscripts.test.ts` | 同上两种方式回放；唯一的差异是 `tree` 的列对齐（见 1.4-17），测试里保留了规范 tree 的原文，比较时只忽略"标签与属性之间"的空格数，连线字符、缩进、标签、属性内容仍逐字比较；另断言写出的 `flowchart.svg` 内容。版本 B（`box`）属后续阶段，不在本阶段范围 |
 | 规范 0.1 的最小 SVG | `SvgSerializer.test.ts` | 按规范所说的 5 条命令生成，与规范给出的文本**逐字节**相同 |
 | 规范 0.1 的 `transform` 示例、`other.svg` | `SvgParser.test.ts` | 读入后的树与规范一致 |
 
@@ -293,7 +295,7 @@ _（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如�
 
 | 手段 | 做法 | 结果（截至 v0.7） |
 |---|---|---|
-| **自动化测试** | `vitest`；`npm test` | 15 个测试文件、214 个用例，全部通过 |
+| **自动化测试** | `vitest`；`npm test` | 16 个测试文件、221 个用例，全部通过 |
 | **覆盖率** | `npm run coverage`（v8） | 语句 98.2%、分支 91.7%、函数 97.2%、行 98.2% |
 | **类型检查** | `tsc --strict`，另开 `noUncheckedIndexedAccess` `noImplicitOverride` | 0 错误 |
 | **架构约束** | `dependency-cruiser` 把 1.3 的依赖规则写成可执行配置 | 0 违反；曾拦下一次循环依赖 |
