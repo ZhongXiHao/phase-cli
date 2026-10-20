@@ -1,4 +1,4 @@
-import type { ShapeView } from './ShapeView.js';
+import type { ShapeView } from './shape/ShapeView.js';
 
 export interface DocumentView {
   readonly width: number;

@@ -1,4 +1,4 @@
-import { InvalidArgumentsError } from './errors/InvalidArgumentsError.js';
+import { InvalidArgumentsError } from '../errors/InvalidArgumentsError.js';
 import { ShapeAttributes } from './ShapeAttributes.js';
 import type { Shape } from './Shape.js';
 

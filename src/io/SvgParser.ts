@@ -1,8 +1,8 @@
 import { DOMParser, type Element } from '@xmldom/xmldom';
 import { Document } from '../model/Document.js';
 import { IdAlreadyExistsError } from '../model/errors/IdAlreadyExistsError.js';
-import type { Shape } from '../model/Shape.js';
-import type { ShapeFactory } from '../model/ShapeFactory.js';
+import type { Shape } from '../model/shape/Shape.js';
+import type { ShapeFactory } from '../model/shape/ShapeFactory.js';
 import { InvalidSvgError } from './InvalidSvgError.js';
 import type { ParseResult } from './ParseResult.js';
 

@@ -1,5 +1,5 @@
 import type { Document } from '../model/Document.js';
-import type { Shape } from '../model/Shape.js';
+import type { Shape } from '../model/shape/Shape.js';
 import type { Command } from './Command.js';
 
 /** 调整同级 z-order：front = 同级最后一个（绘制在最上层），back = 同级第一个。 */

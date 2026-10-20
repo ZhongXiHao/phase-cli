@@ -1,8 +1,8 @@
 import { CannotGroupIntoDescendantError } from '../model/errors/CannotGroupIntoDescendantError.js';
 import { InvalidArgumentsError } from '../model/errors/InvalidArgumentsError.js';
-import { Group } from '../model/Group.js';
+import { Group } from '../model/shape/Group.js';
 import type { Document } from '../model/Document.js';
-import type { Shape } from '../model/Shape.js';
+import type { Shape } from '../model/shape/Shape.js';
 import type { Command } from './Command.js';
 
 interface Placement {

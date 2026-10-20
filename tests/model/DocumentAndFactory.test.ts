@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Document } from '../../src/model/Document.js';
-import { Group } from '../../src/model/Group.js';
-import { Rect } from '../../src/model/Rect.js';
-import { ShapeFactory } from '../../src/model/ShapeFactory.js';
+import { Group } from '../../src/model/shape/Group.js';
+import { Rect } from '../../src/model/shape/Rect.js';
+import { ShapeFactory } from '../../src/model/shape/ShapeFactory.js';
 import { IdAlreadyExistsError } from '../../src/model/errors/IdAlreadyExistsError.js';
 import { InvalidArgumentsError } from '../../src/model/errors/InvalidArgumentsError.js';
 import { InvalidCanvasSizeError } from '../../src/model/errors/InvalidCanvasSizeError.js';

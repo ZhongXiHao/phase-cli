@@ -4,9 +4,9 @@ import { Interpreter } from '../../src/cli/Interpreter.js';
 import { SvgParser } from '../../src/io/SvgParser.js';
 import { SvgSerializer } from '../../src/io/SvgSerializer.js';
 import { Document } from '../../src/model/Document.js';
-import { Group } from '../../src/model/Group.js';
-import { Text } from '../../src/model/Text.js';
-import { ShapeFactory } from '../../src/model/ShapeFactory.js';
+import { Group } from '../../src/model/shape/Group.js';
+import { Text } from '../../src/model/shape/Text.js';
+import { ShapeFactory } from '../../src/model/shape/ShapeFactory.js';
 import { InMemoryFileSystem } from '../support/InMemoryFileSystem.js';
 
 function build(...lines: string[]): { fs: InMemoryFileSystem; run: (line: string) => string[] } {

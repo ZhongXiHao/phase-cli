@@ -1,4 +1,4 @@
-import { NumberCodec } from './NumberCodec.js';
+import { NumberCodec } from '../NumberCodec.js';
 import type { StyleInit } from './StyleInit.js';
 
 /** 创建图形时的"属性名 → 文本值"袋。CLI 位置参数与 SVG 属性都先归一化成它。 */

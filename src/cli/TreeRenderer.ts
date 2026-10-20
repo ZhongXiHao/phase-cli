@@ -1,6 +1,6 @@
 import type { DocumentView } from '../model/DocumentView.js';
 import { NumberCodec } from '../model/NumberCodec.js';
-import type { ShapeView } from '../model/ShapeView.js';
+import type { ShapeView } from '../model/shape/ShapeView.js';
 
 interface Entry {
   readonly head: string;

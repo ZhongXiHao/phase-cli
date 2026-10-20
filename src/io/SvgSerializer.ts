@@ -1,6 +1,6 @@
 import type { DocumentView } from '../model/DocumentView.js';
 import { NumberCodec } from '../model/NumberCodec.js';
-import type { ShapeView } from '../model/ShapeView.js';
+import type { ShapeView } from '../model/shape/ShapeView.js';
 
 /**
  * Document → SVG 文本。只依赖 ShapeView 的 kind / attributes / textContent / children，

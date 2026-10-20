@@ -1,4 +1,4 @@
-import { UnknownShapeTypeError } from './errors/UnknownShapeTypeError.js';
+import { UnknownShapeTypeError } from '../errors/UnknownShapeTypeError.js';
 import { Circle } from './Circle.js';
 import { Ellipse } from './Ellipse.js';
 import { Group } from './Group.js';

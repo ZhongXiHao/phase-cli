@@ -5,7 +5,7 @@ import { GroupCommand } from '../../src/commands/GroupCommand.js';
 import { UngroupCommand } from '../../src/commands/UngroupCommand.js';
 import { ZOrderCommand } from '../../src/commands/ZOrderCommand.js';
 import type { Command } from '../../src/commands/Command.js';
-import { Group } from '../../src/model/Group.js';
+import { Group } from '../../src/model/shape/Group.js';
 import { TestEditor } from '../support/TestEditor.js';
 
 let ed: TestEditor;

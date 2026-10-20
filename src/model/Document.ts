@@ -3,9 +3,9 @@ import { InvalidCanvasSizeError } from './errors/InvalidCanvasSizeError.js';
 import { NoSuchContainerError } from './errors/NoSuchContainerError.js';
 import { NoSuchShapeError } from './errors/NoSuchShapeError.js';
 import { NotAContainerError } from './errors/NotAContainerError.js';
-import { RootGroup } from './RootGroup.js';
+import { RootGroup } from './shape/RootGroup.js';
 import type { DocumentView } from './DocumentView.js';
-import type { Shape } from './Shape.js';
+import type { Shape } from './shape/Shape.js';
 
 /** 一份 SVG 文档：画布尺寸 + 图形树。所有按 id 的定位都经过 find 系列方法这唯一入口。 */
 export class Document implements DocumentView {

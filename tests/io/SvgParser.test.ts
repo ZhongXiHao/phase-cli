@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SvgParser } from '../../src/io/SvgParser.js';
-import { ShapeFactory } from '../../src/model/ShapeFactory.js';
+import { ShapeFactory } from '../../src/model/shape/ShapeFactory.js';
 import { TreeRenderer } from '../../src/cli/TreeRenderer.js';
 
 const parser = new SvgParser(ShapeFactory.withBuiltIns());

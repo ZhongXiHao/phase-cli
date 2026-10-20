@@ -1,7 +1,7 @@
 import { NumberCodec } from '../model/NumberCodec.js';
 import type { Document } from '../model/Document.js';
-import type { Shape } from '../model/Shape.js';
-import type { ShapeState } from '../model/ShapeState.js';
+import type { Shape } from '../model/shape/Shape.js';
+import type { ShapeState } from '../model/shape/ShapeState.js';
 import type { Command } from './Command.js';
 
 export class MoveCommand implements Command {

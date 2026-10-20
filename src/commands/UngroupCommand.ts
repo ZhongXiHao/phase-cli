@@ -2,7 +2,7 @@ import { CannotUngroupCompositeError } from '../model/errors/CannotUngroupCompos
 import { CannotUngroupTopLevelError } from '../model/errors/CannotUngroupTopLevelError.js';
 import { NotAContainerError } from '../model/errors/NotAContainerError.js';
 import type { Document } from '../model/Document.js';
-import type { Shape } from '../model/Shape.js';
+import type { Shape } from '../model/shape/Shape.js';
 import type { Command } from './Command.js';
 
 /** 解散容器：子图形提升到容器原来的父级，占据容器原来的位置。 */

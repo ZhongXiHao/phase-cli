@@ -1,4 +1,4 @@
-import type { ShapeView } from '../model/ShapeView.js';
+import type { ShapeView } from '../model/shape/ShapeView.js';
 
 /** 单个图形的属性明细：首行标签与父级，其后是缩进的明细行。 */
 export class ShowRenderer {

@@ -1,5 +1,5 @@
-import { UnknownAttributeError } from './errors/UnknownAttributeError.js';
-import { NumberCodec } from './NumberCodec.js';
+import { UnknownAttributeError } from '../errors/UnknownAttributeError.js';
+import { NumberCodec } from '../NumberCodec.js';
 import { Shape } from './Shape.js';
 import { ShapeSpec } from './ShapeSpec.js';
 import type { ShapeState } from './ShapeState.js';

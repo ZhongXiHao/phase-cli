@@ -1,8 +1,8 @@
 import type { Command } from '../../src/commands/Command.js';
 import { History } from '../../src/commands/History.js';
 import { Document } from '../../src/model/Document.js';
-import { ShapeFactory } from '../../src/model/ShapeFactory.js';
-import type { ShapeView } from '../../src/model/ShapeView.js';
+import { ShapeFactory } from '../../src/model/shape/ShapeFactory.js';
+import type { ShapeView } from '../../src/model/shape/ShapeView.js';
 
 /** 测试用的小夹具：一份文档 + 工厂 + 历史，以及整棵树的文本快照。 */
 export class TestEditor {

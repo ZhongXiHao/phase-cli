@@ -1,6 +1,6 @@
 import { CannotGroupIntoDescendantError } from '../model/errors/CannotGroupIntoDescendantError.js';
 import type { Document } from '../model/Document.js';
-import type { Shape } from '../model/Shape.js';
+import type { Shape } from '../model/shape/Shape.js';
 import type { Command } from './Command.js';
 
 /** 把已有图形移入容器，作为最后一个子节点。 */

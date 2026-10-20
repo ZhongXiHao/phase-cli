@@ -10,7 +10,10 @@
 
 ```text
 src/
-├── model/      领域模型：图形层次（Composite）、文档、领域错误
+├── model/      领域模型
+│   ├── shape/    图形层次（Composite）、工厂、状态快照、只读视图
+│   ├── errors/   领域错误（message 即规范里 `error:` 之后的文本）
+│   └── 根上      Document / DocumentView（文档）、NumberCodec（数字解析与格式化）
 ├── commands/   可撤销的编辑命令（Command 模式）+ 撤销/重做历史
 ├── io/         SVG 序列化 / 解析、文件系统抽象
 ├── app/        应用层门面 Editor：会话状态 + 用例入口
@@ -22,7 +25,7 @@ doc/README.md   本文档
 
 | 模块 | 职责 | 主要类（一类一文件，文件名 = 类名） |
 |---|---|---|
-| **model** | 表达"文档里有什么"。图形层次、父子关系、id 唯一性、几何变换（move/scale）、属性白名单校验、状态快照（Memento）。**不认识 SVG 文本、不认识命令行、不输出任何文字** | `Shape`（抽象基类）、`Rect` `Circle` `Ellipse` `Line` `Text`、`Group`、`RootGroup`（画布根）、`Document`、`ShapeFactory`、`ShapeSpec`（类型创建说明书）、`ShapeAttributes`、`ShapeState`（Memento）、`NumberCodec`、`StyleInit`、`ShapeView` / `DocumentView`（只读接口）、`DomainError` 及 `errors/` 下的各子类 |
+| **model** | 表达"文档里有什么"。图形层次、父子关系、id 唯一性、几何变换（move/scale）、属性白名单校验、状态快照（Memento）。**不认识 SVG 文本、不认识命令行、不输出任何文字** | **`shape/`**：`Shape`（抽象基类）、`Rect` `Circle` `Ellipse` `Line` `Text`、`Group`、`RootGroup`（画布根）、`ShapeFactory`、`ShapeSpec`（类型创建说明书）、`ShapeAttributes`、`ShapeState`（Memento）、`StyleInit`、`ShapeView`（只读接口）。**根上**：`Document`、`DocumentView`（只读接口）、`NumberCodec`。**`errors/`**：`DomainError` 及各子类 |
 | **commands** | 表达"一次可撤销的编辑"。每条编辑命令一个类，自带 `execute / undo`；`History` 管理撤销栈与重做栈 | `Command`（接口）、`CreateShapeCommand` `DeleteShapeCommand` `MoveCommand` `ScaleCommand` `SetAttributeCommand` `GroupCommand` `UngroupCommand` `AddToCommand` `ZOrderCommand`（`front()` / `back()` 两个静态工厂）、`History`、`NothingToUndoError` `NothingToRedoError` |
 | **io** | 表达"文档与外部世界的转换"：Document ⇄ SVG 文本；文件读写经接口隔离，测试时可换成内存实现 | `SvgSerializer`、`SvgParser`、`ParseResult`、`FileSystem`（接口）、`NodeFileSystem`、`FileReadError` `FileWriteError` `InvalidSvgError` |
 | **app** | 表达"一个编辑会话"：持有当前 Document、History、读入路径、"io 命令后禁止 undo"的栏位；对外提供与界面无关的用例方法（`createShape` `move` `undo` `save`…）。**不打印、不解析命令行**，换 GUI / agent 时可原样复用 | `Editor` |
@@ -128,7 +131,7 @@ Command ..> Document
 | # | 位置 | 现状 | 待重构方向 |
 |---|---|---|---|
 | 1 | `cli/CommandTable`：命令名 → 处理器 | `Map<string, CliHandler>` 注册表，不使用 `switch` | 插件阶段改为可注册（`CommandProvider`） |
-| 2 | `model/ShapeFactory`：类型名 → 图形类 | `Map<string, ShapeCreator>` 注册表，提供 `register()` | 插件阶段改为 `ShapeProvider` 接口，由插件注册 `box` |
+| 2 | `model/shape/ShapeFactory`：类型名 → 图形类 | `Map<string, ShapeCreator>` 注册表，提供 `register()` | 插件阶段改为 `ShapeProvider` 接口，由插件注册 `box` |
 
 除这两处外，代码中**不得出现按类型名 / 标签名的 `switch` 或 `if-else` 链**，也不得出现 `instanceof` 分派。
 
@@ -149,14 +152,15 @@ main ──► cli ──► app ──► commands ──► model
 | `commands` | `model` | `io` `app` `cli` | 命令只操作文档对象；不碰文件、不碰界面。保证"一个命令"能在无 IO 的单元测试里跑 |
 | `io` | `model`、`@xmldom/xmldom` | `commands` `app` `cli` | 序列化只关心 Document ⇄ 文本；格式变化不应波及编辑逻辑 |
 | `app` | `model` `commands` `io` | `cli` | 门面不得反向依赖界面，否则换 GUI / agent 时无法复用；`app` 不打印任何文字 |
-| `cli` | `app`，以及 `model` 中的 **只读** 部分（`ShapeView`、`DocumentView`、`NumberCodec`、`errors/`） | `commands` `io` | cli 只和门面说话。只读约束由类型保证：`app` 向 cli 返回的是 `ShapeView`，没有任何变更方法 |
+| `cli` | `app`，以及 `model` 中的 **只读** 部分（`shape/ShapeView`、`DocumentView`、`NumberCodec`、`errors/`） | `commands` `io` | cli 只和门面说话。只读约束由类型保证：`app` 向 cli 返回的是 `ShapeView`，没有任何变更方法 |
 | `main` | 所有模块 | — | 组合根，唯一允许认识全部实现类的地方（注入 `NodeFileSystem`、`process.stdin/stdout`） |
 
 补充规则：
 1. **`model` 内部**：`Group` 的子节点变更方法（`insertChild / removeChild`）只允许 `commands` 调用，`cli` 看不到（`ShapeView` 不含它们）。
 2. **副作用边界**：只有 `io/NodeFileSystem` 与 `cli/Repl` 触碰真实的 fs / stdio，其余模块纯内存，便于测试。
-3. **cli 对 model 的访问面是白名单**：`dependency-cruiser` 规则 `cli-reads-model-through-views` 只允许 cli 引用 `ShapeView`、`DocumentView`、`NumberCodec` 与 `errors/`，引用 `Shape`、`Group`、`Document` 等任何可变类型即报错。
+3. **cli 对 model 的访问面是白名单**：`dependency-cruiser` 规则 `cli-reads-model-through-views` 只允许 cli 引用 `shape/ShapeView`、`DocumentView`、`NumberCodec` 与 `errors/`，引用 `Shape`、`Group`、`Document` 等任何可变类型即报错。
 4. **执行方式**：用 `dependency-cruiser` 配置上述规则并纳入 `npm test`，违反即视为"待处理项"。
+5. **`model` 内部分层，依赖单向**：`errors` ← `NumberCodec` ← `shape` ← `Document`。即 `errors/` 不依赖 model 里的其他任何东西；`NumberCodec` 只依赖 `errors/`；`shape/` 自成一体，不依赖 `Document` / `DocumentView`；只有 `Document` 位于最上层，依赖 `shape/`。三条分别由规则 `model-errors-are-leaf`、`model-numbercodec-below-shape`、`model-shape-is-self-contained` 强制。理由：`Document` 是图形的聚合，图形不应反过来知道自己装在什么文档里；`NumberCodec` 是被图形使用的底层工具，因此留在 `shape/` 之外也不会形成环。
 
 ### 1.4 关键设计决策（实现层面）
 
@@ -205,6 +209,7 @@ main ──► cli ──► app ──► commands ──► model
 | v0.6 | 2026-10-18 | 实现 `app/` 与 `cli/`：新增 `Interpreter`；cli 对 model 的访问收紧为白名单（新增 dependency-cruiser 规则）；新增 1.4 第 15–18 条；`HelpHandler` 改为接收函数而非 `CommandTable` | 测试与依赖检查中发现的问题（见过程记录） |
 | v0.7 | 2026-10-18 | 实现 `io/` 并接入 `read` / `save`：`Editor` 构造时注入 `FileSystem`；新增 1.4 第 19–22 条；1.6 补充"读入丢弃未知属性"这一已知局限；填写"一致性自查"与"质量保证手段" | 功能实现完成；测试发现 `xmldom` 会二次包装回调里抛出的异常，改为记录后统一抛出 |
 | v0.8 | 2026-10-20 | 新增 `tests/transcripts/SpecTranscripts.test.ts`：规范第 6 节与 6.1 节两个完整会话的逐步回放；更新 4.1 / 4.2 的测试数量 | 此前回放分散且不完整 |
+| v0.9 | 2026-10-20 | `model/` 内部整理：14 个图形相关文件移入 `model/shape/`（`Shape` `Rect` `Circle` `Ellipse` `Line` `Text` `Group` `RootGroup` `ShapeFactory` `ShapeSpec` `ShapeAttributes` `ShapeState` `ShapeView` `StyleInit`）；`Document` `DocumentView` `NumberCodec` 留在 `model/` 根，`errors/` 不变；新增 3 条 model 内部分层的依赖规则，cli 白名单路径改为 `shape/ShapeView` | `model/` 平铺 17 个文件，图形类与 `Document` 混放难以浏览；顶层模块划分不变 |
 
 15. **Repl 与 Interpreter 分离**：`Interpreter.run(line): string[]` 不碰 stdin/stdout，负责分词、分发、把 `DomainError` 转成 `error: …`，非领域错误以 `error: internal: …` 报告但不中断会话；`Repl` 只做读写循环。这样脚本回放测试直接驱动 Interpreter，I/O 层单独用内存流测试。
 16. **`create` 的 `in` 子句**：处理器取"倒数第二个 token 恰为 `in`"作为尾缀，其余全部当位置参数。已知限制：若 text 内容恰好就是 `in` 且紧跟一个 id，会被误判为尾缀（需把内容放进引号并保证其不在倒数第二位）。
@@ -227,6 +232,7 @@ _（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如�
 * **规范示例之间互相矛盾**：`tree` 的列对齐在三份示例里不一致，无法同时满足，取多数（见 1.4-17）。
 * **第三方库的行为与预期不符**：我（AI）最初假设在 `xmldom` 的 `onError` 回调里抛自己的 `InvalidSvgError` 即可；测试显示用户会看到 `error: internal: Reporting fatalError … caused InvalidSvgError`，因为库会把回调里抛出的异常再包一层，且致命错误它仍会自己抛 `ParseError`。动手前我用一段小脚本探测了库的真实行为（有效/无效输入各一组），最终改为"回调只记录第一个错误 + try/catch 捕获 `ParseError`，统一转成 `invalid svg: …`"。
 * **用户追问"两个完整会话是否做成了回放测试"，我如实核对后发现只做了一半**：第 6 节的回放漏了中间的 `tree`，6.1 节分散在两个文件里且没有 `tree` 与同会话的 `save`，也没有任何一个用真正的 `Repl` 验证整份会话文本。补了 `transcripts/SpecTranscripts.test.ts`，用同一张步骤表做 Interpreter 与 Repl 两种回放。为确认这些断言不是空转，我临时改坏两处实现（undo 回显文本、tree 的竖线字符），测试均如期失败，随后还原。
+* **用户提出把 `model/` 里图形相关的文件收进 `model/shape/`**：我没有直接动手，先用只读命令核对可行性——是否有图形类依赖 `Document`（没有，只有 `Document` 依赖图形），每个文件被多少处引用（约 45 行外部引用）。结论是可以做到 `shape/` 自成一体。对"全部放进 `shape/`"我提出了异议：`Document` 是图形的聚合、`NumberCodec` 是通用工具，放进名叫 `shape` 的目录名不副实，用户选了"只放图形相关"的方案。实现时用一个脚本统一改写 import（32 个文件），再用类型检查兜底；并把新的内部分层写成 3 条 dependency-cruiser 规则，逐条植入违规依赖确认会报错。重构前后用示例脚本对比输出，4 个文件（2 份会话输出 + 2 份生成的 SVG）逐字节相同。
 * **覆盖率暴露了测试盲区**：第一次跑覆盖率总体 92%，但明细显示 `Ellipse` 只有 27%、`addto` / `back` 两个命令从未经过 CLI 测试——此前测试只覆盖了我顺手写的几个场景。补了按图形类型参数化的 `LeafShapes.test.ts`（五种叶子共用同一套检查）和 `Handlers.test.ts` 后升到 98%。
 * **自查抓到的小违规**：用脚本检查"类名 = 文件名"，发现 `ReplOptions`、`ParseResult` 两个接口与类挤在同一文件，已拆出；`Repl` 里有一个赋值后从未使用的 `close` 字段（死代码），已删除。
 * **又一次测试预期写错**：我断言 `create rect r 0 0 1 1 in` 应报用法错误，实际上 `rect` 有可选的 `fill`，`in` 被当作颜色值——实现符合 1.4-16 的约定，错的是预期。改为用没有多余可选参数的 `circle` 来验证"多出来的 `in` 触发用法错误"。
@@ -245,6 +251,7 @@ _（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如�
 | `Shape` 新增 `anchor()`；`commands` 新增 `NothingToUndoError` `NothingToRedoError` | v0.5 |
 | `cli` 新增 `Interpreter` `ReplOptions`；`HelpHandler` 改为接收函数 | v0.6 |
 | `io` 新增 `ParseResult` `FileReadError` `FileWriteError` `InvalidSvgError`；`Editor` 新增 `fileSystem` 构造参数 | v0.7 |
+| `model/` 内部新增 `shape/` 子目录（14 个文件）；`Document` `DocumentView` `NumberCodec` 留在根 | v0.9 |
 
 约束"一类一文件、文件名 = 类名"也做了脚本检查：除两处接口与类同文件（已拆出）外，88 个源文件（含 main.ts）全部符合。
 
@@ -252,7 +259,7 @@ _（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如�
 
 **没有。** 检查分两层：
 
-1. **工具检查**：`npm run deps`（dependency-cruiser，规则见 `.dependency-cruiser.cjs`）报告 `no dependency violations found`（92 个模块、257 条依赖）。规则含：无环；`model` 不依赖任何其他模块与第三方库；`commands` / `io` 不依赖 `app` `cli`；`app` 不依赖 `cli`；`cli` 不依赖 `commands` `io`，且对 `model` 只能引用白名单；XML 库只能在 `io` 里用。我还故意写入一条 `model → cli` 的依赖，确认规则会报错，然后删除。
+1. **工具检查**：`npm run deps`（dependency-cruiser，规则见 `.dependency-cruiser.cjs`）报告 `no dependency violations found`（92 个模块、257 条依赖）。规则含：无环；`model` 不依赖任何其他模块与第三方库，且内部单向分层（`errors` ← `NumberCodec` ← `shape` ← `Document`，三条规则）；`commands` / `io` 不依赖 `app` `cli`；`app` 不依赖 `cli`；`cli` 不依赖 `commands` `io`，且对 `model` 只能引用白名单；XML 库只能在 `io` 里用。我还故意写入 `model → cli`、`shape → Document`、`cli → model/shape/Shape`、`errors → NumberCodec`、`NumberCodec → shape` 这几种违规依赖，确认规则逐条报错，然后删除。
 2. **抽样复核**（脚本统计各模块之间的 import 数量，与 1.3 对照）：
 
 | 实际依赖 | 次数 | 方案允许？ |
@@ -272,7 +279,7 @@ _（实现过程中填写：AI 给出的建议 / 代码里发现的问题、如�
 | 规范要求 | 检查方法 | 结果 |
 |---|---|---|
 | 禁止按类型名 `switch` / `instanceof` 分派 | `grep` 全部 `src/` | `switch` 仅出现在 5 个叶子图形的 `setOwnAttribute` 里，分派的是**属性名**（白名单校验），不是图形类型；`instanceof` 仅用于判断是否 `Error` / `DomainError`，没有按图形类型分派 |
-| 按名字分派只允许两处，且标注待重构 | 代码审阅 | 仅 `cli/CommandTable`（命令名 → 处理器）与 `model/ShapeFactory`（类型名 → `ShapeSpec`），两处的注释与 1.2 节均标注"待重构" |
+| 按名字分派只允许两处，且标注待重构 | 代码审阅 | 仅 `cli/CommandTable`（命令名 → 处理器）与 `model/shape/ShapeFactory`（类型名 → `ShapeSpec`），两处的注释与 1.2 节均标注"待重构" |
 | 容器与叶子统一操作 | 测试 | `move` `scale` `set` `delete` 对 `g` 与叶子走同一条命令类，没有 `if (isGroup)`；`Handlers.test.ts` `EditCommands.test.ts` 覆盖 |
 | 命令失败不改变任何状态 | 测试 | 所有命令的每个错误场景都比对"前后整棵树快照 + undo 深度"（`expectFailsWithoutChange`），另有 `read` / `save` 失败不改变文档与历史的用例 |
 

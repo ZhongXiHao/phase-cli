@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { Circle } from '../../src/model/Circle.js';
-import { Ellipse } from '../../src/model/Ellipse.js';
-import { Line } from '../../src/model/Line.js';
-import { Rect } from '../../src/model/Rect.js';
-import type { Shape } from '../../src/model/Shape.js';
-import { Text } from '../../src/model/Text.js';
+import { Circle } from '../../src/model/shape/Circle.js';
+import { Ellipse } from '../../src/model/shape/Ellipse.js';
+import { Line } from '../../src/model/shape/Line.js';
+import { Rect } from '../../src/model/shape/Rect.js';
+import type { Shape } from '../../src/model/shape/Shape.js';
+import { Text } from '../../src/model/shape/Text.js';
 
 /**
  * 每种叶子图形走同一套检查：几何属性白名单、translate、scale、anchor、状态快照。

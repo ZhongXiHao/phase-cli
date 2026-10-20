@@ -1,8 +1,8 @@
-import { InvalidScaleFactorError } from './errors/InvalidScaleFactorError.js';
-import { InvalidValueError } from './errors/InvalidValueError.js';
-import { NotAContainerError } from './errors/NotAContainerError.js';
-import { UnknownAttributeError } from './errors/UnknownAttributeError.js';
-import { NumberCodec } from './NumberCodec.js';
+import { InvalidScaleFactorError } from '../errors/InvalidScaleFactorError.js';
+import { InvalidValueError } from '../errors/InvalidValueError.js';
+import { NotAContainerError } from '../errors/NotAContainerError.js';
+import { UnknownAttributeError } from '../errors/UnknownAttributeError.js';
+import { NumberCodec } from '../NumberCodec.js';
 import { ShapeState } from './ShapeState.js';
 import type { ShapeView } from './ShapeView.js';
 import type { StyleInit } from './StyleInit.js';

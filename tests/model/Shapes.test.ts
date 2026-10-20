@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { Circle } from '../../src/model/Circle.js';
-import { Ellipse } from '../../src/model/Ellipse.js';
-import { Group } from '../../src/model/Group.js';
-import { Line } from '../../src/model/Line.js';
-import { Rect } from '../../src/model/Rect.js';
-import { Text } from '../../src/model/Text.js';
+import { Circle } from '../../src/model/shape/Circle.js';
+import { Ellipse } from '../../src/model/shape/Ellipse.js';
+import { Group } from '../../src/model/shape/Group.js';
+import { Line } from '../../src/model/shape/Line.js';
+import { Rect } from '../../src/model/shape/Rect.js';
+import { Text } from '../../src/model/shape/Text.js';
 import { InvalidNumberError } from '../../src/model/errors/InvalidNumberError.js';
 import { InvalidScaleFactorError } from '../../src/model/errors/InvalidScaleFactorError.js';
 import { NotAContainerError } from '../../src/model/errors/NotAContainerError.js';
